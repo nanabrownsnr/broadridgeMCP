@@ -1,10 +1,10 @@
 from typing import List
 
-from core.authentication.auth_token import verify_access_token
-from core.config import settings
+from app.core.authentication.auth_token import verify_access_token
+from app.core.config import settings
 from fastapi import Depends, Header, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from schemas.token import TokenData
+from app.schemas.token import TokenData
 
 security = HTTPBearer(auto_error=False)
 
@@ -45,3 +45,4 @@ class RoleBasedAccessControl:
     def __call__(self, current_token: TokenData = Depends(get_current_token)) -> None:
         if current_token.role not in self.allowed_roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not permitted")
+

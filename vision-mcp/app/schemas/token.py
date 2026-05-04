@@ -24,3 +24,4 @@ class TokenData(BaseModel):
 
 class EmailVerificationToken(BaseModel):
     verification_token: str
+

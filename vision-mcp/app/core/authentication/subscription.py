@@ -5,3 +5,4 @@ class SubscriptionTier(StrEnum):
     FREE = "free"
     PRO = "pro"
     ENTERPRISE = "enterprise"
+

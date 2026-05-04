@@ -2,10 +2,10 @@ import asyncio
 from datetime import datetime, timedelta
 
 import httpx
-from core.config import settings
+from app.core.config import settings
 from fastapi import HTTPException, status
 from jose import ExpiredSignatureError, JWTError, jwt
-from schemas.token import TokenData
+from app.schemas.token import TokenData
 
 credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -71,3 +71,4 @@ async def verify_access_token(token: str, audience: str | None = settings.SERVIC
         raise HTTPException(status_code=401, detail="Access token expired") from exc
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid access token") from exc
+

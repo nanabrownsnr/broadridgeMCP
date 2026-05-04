@@ -3,7 +3,7 @@ import sys
 import uuid
 
 import httpx
-from core.config import settings
+from app.core.config import settings
 from jose import jwt
 
 LICENSE_SERVER_URL = settings.LICENSE_SERVER_BASE_URL.rstrip("/")
@@ -38,3 +38,4 @@ async def monitor_license_server() -> None:
         except Exception:
             sys.exit(1)
         await asyncio.sleep(86400)
+

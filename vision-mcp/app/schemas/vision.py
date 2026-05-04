@@ -26,3 +26,4 @@ class VisionResponse(BaseModel):
     components: list[VisionComponent]
     style_tokens: dict
     summary: str
+

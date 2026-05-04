@@ -74,3 +74,4 @@ class Settings(BaseSettings):
 settings = Settings()
 configure_logging()
 
+

@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from fastapi import APIRouter, HTTPException
 from PIL import Image
 
-from schemas.vision import AnalyzeSourceRequest
+from app.schemas.vision import AnalyzeSourceRequest
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 
@@ -113,3 +113,4 @@ async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
         "style_tokens": style_tokens,
         "summary": summary,
     }
+

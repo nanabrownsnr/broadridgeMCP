@@ -27,3 +27,4 @@ class ServeProjectRequest(BaseModel):
 class DiffSummaryResponse(BaseModel):
     changed_files: list[str]
     summary: str
+

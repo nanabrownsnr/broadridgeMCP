@@ -3,9 +3,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from core.config import settings
+from app.core.config import settings
 from fastapi import APIRouter, HTTPException
-from schemas.filesystem import ReadFilesRequest, RunCommandRequest, ServeProjectRequest, WriteFilesRequest
+from app.schemas.filesystem import ReadFilesRequest, RunCommandRequest, ServeProjectRequest, WriteFilesRequest
 
 router = APIRouter(prefix="/filesystem", tags=["filesystem"])
 
@@ -88,3 +88,4 @@ async def snapshot_diff() -> dict:
             full_path = Path(dirpath) / name
             changed.append(str(full_path))
     return {"changed_files": changed, "summary": "Filesystem snapshot generated"}
+

@@ -1,11 +1,11 @@
 from datetime import datetime
 
 import httpx
-from core.authentication.auth_middleware import get_current_token, get_persona_id
-from core.config import settings
+from app.core.authentication.auth_middleware import get_current_token, get_persona_id
+from app.core.config import settings
 from fastapi import Depends
 from jose import jwt
-from schemas.token import TokenData
+from app.schemas.token import TokenData
 
 
 class PlatformIntegrationClient:
@@ -57,3 +57,4 @@ def get_platform_client(
     persona_id: str | None = Depends(get_persona_id),
 ) -> PlatformIntegrationClient:
     return PlatformIntegrationClient(current_token.access_token, persona_id)
+
