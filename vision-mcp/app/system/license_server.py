@@ -28,7 +28,7 @@ async def validate_license_or_exit() -> None:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
             LICENSE_ACTIVATION_URL,
-            json={"license_key": settings.LICENSE_KEY, "device_id": get_device_id()},
+            json={"license_key": settings.LICENSE_KEY, "device_id": get_device_id(), "service_id": settings.SERVICE_ID},
         )
         if response.is_error:
             body = response.text[:1000]
