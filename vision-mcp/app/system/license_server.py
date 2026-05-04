@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import uuid
+import logging
 
 import httpx
 from app.core.config import settings
@@ -13,6 +14,7 @@ LICENSE_ACTIVATION_URL = (
     if settings.LICENSE_SERVER_BASE_URL
     else ""
 )
+logger = logging.getLogger(__name__)
 
 
 def get_device_id() -> str:
@@ -28,14 +30,17 @@ async def validate_license_or_exit() -> None:
             LICENSE_ACTIVATION_URL,
             json={"license_key": settings.LICENSE_KEY, "device_id": get_device_id()},
         )
-        response.raise_for_status()
+        if response.is_error:
+            body = response.text[:1000]
+            raise RuntimeError(f"License activation failed: {response.status_code} body={body}")
 
 
 async def monitor_license_server() -> None:
     while True:
         try:
             await validate_license_or_exit()
-        except Exception:
+        except Exception as exc:
+            logger.error("License validation error: %s", exc)
             sys.exit(1)
         await asyncio.sleep(86400)
 
