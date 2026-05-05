@@ -6,6 +6,11 @@ services:
       - ./filesystem-mcp/.env
     ports:
       - "8011:8000"
+      - "9000-9100:9000-9100"
+    volumes:
+      - /home/nbrown:/workspace
+    environment:
+      - WORKSPACE_ROOT=/workspace
 
   vision-mcp:
     build:

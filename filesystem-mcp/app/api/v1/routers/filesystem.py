@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -9,6 +10,7 @@ from app.schemas.filesystem import ReadFilesRequest, RunCommandRequest, ServePro
 
 router = APIRouter(prefix="/filesystem", tags=["filesystem"])
 
+logger = logging.getLogger(__name__)
 
 SERVE_PROCESSES: dict[int, subprocess.Popen] = {}
 
@@ -47,13 +49,20 @@ async def write_files(payload: WriteFilesRequest) -> dict:
     Use this after planning code changes. Parent directories are created automatically.
     Returns absolute paths of files written.
     """
+    logger.info(f"[WRITE_FILES] REQUEST - {len(payload.files)} files")
+    for i, f in enumerate(payload.files):
+        logger.info(f"[WRITE_FILES] File {i+1}: path={f.path}, size={len(f.content)} chars")
+    
     written: list[str] = []
     for file_item in payload.files:
         path = _safe_path(file_item.path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(file_item.content, encoding="utf-8")
         written.append(str(path))
-    return {"written_files": written}
+    
+    response = {"written_files": written}
+    logger.info(f"[WRITE_FILES] RESPONSE - {response}")
+    return response
 
 
 @router.post("/run_command")
@@ -88,10 +97,13 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
     Returns `url` and `status` (`started` or `already_running`).
     """
     cwd = _safe_path(payload.cwd)
+    logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={payload.port}")
 
     existing = SERVE_PROCESSES.get(payload.port)
     if existing and existing.poll() is None:
-        return {"url": f"http://localhost:{payload.port}", "status": "already_running"}
+        response = {"url": f"http://178.194.34.219:{payload.port}", "status": "already_running"}
+        logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
+        return response
 
     proc = subprocess.Popen(
         ["python", "-m", "http.server", str(payload.port)],
@@ -100,7 +112,9 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         stderr=subprocess.DEVNULL,
     )
     SERVE_PROCESSES[payload.port] = proc
-    return {"url": f"http://localhost:{payload.port}", "status": "started"}
+    response = {"url": f"http://178.194.34.219:{payload.port}", "status": "started"}
+    logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
+    return response
 
 
 @router.get("/snapshot_diff")
