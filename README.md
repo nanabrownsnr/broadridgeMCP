@@ -26,3 +26,4 @@ This builds and starts both services via Docker Compose.
 
 - This scaffold follows the local `MCP ref Doc` architecture shape.
 - Fill environment variables in each service `.env` before production use.
+- `vision-mcp` includes `compare_images` for redesign fidelity scoring and correction hints.

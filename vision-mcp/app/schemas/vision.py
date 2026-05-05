@@ -27,6 +27,26 @@ class AnalyzeSourceRequest(BaseModel):
     )
 
 
+class CompareImagesRequest(BaseModel):
+    """Request payload for visual similarity scoring between source and generated pages."""
+
+    source_url: str = Field(
+        ...,
+        description="Reference/source image URL representing the original page.",
+        examples=["https://example.com/source-page.png"],
+    )
+    generated_url: str = Field(
+        ...,
+        description="Generated page screenshot URL to compare against the source.",
+        examples=["https://example.com/generated-page.png"],
+    )
+    headers: dict[str, str] | None = Field(
+        default=None,
+        description="Optional HTTP headers used for both downloads.",
+        examples=[{"Authorization": "Bearer <token>"}],
+    )
+
+
 class VisionComponent(BaseModel):
     """Detected UI or document component."""
 
@@ -49,4 +69,22 @@ class VisionResponse(BaseModel):
     components: list[VisionComponent] = Field(..., description="Detected interactive components.")
     style_tokens: dict = Field(..., description="Best-effort style hints (currently sparse).")
     summary: str = Field(..., description="Concise summary of the analyzed source.")
+
+
+class ImageComparisonResponse(BaseModel):
+    """Visual QA response used to guide auto-correction loops."""
+
+    similarity_score: float = Field(..., description="Overall 0-1 similarity score (higher is better).")
+    mae_score: float = Field(..., description="Mean absolute pixel error normalized to 0-1 (lower is better).")
+    text_similarity_score: float = Field(
+        ..., description="OCR text overlap score 0-1 between source and generated images."
+    )
+    component_similarity_score: float = Field(
+        ..., description="Inferred component overlap score 0-1 between source and generated images."
+    )
+    source_size: dict = Field(..., description="Original source image dimensions.")
+    generated_size: dict = Field(..., description="Generated image dimensions.")
+    correction_hints: list[str] = Field(
+        ..., description="Actionable hints for the renderer to improve visual fidelity in the next pass."
+    )
 
