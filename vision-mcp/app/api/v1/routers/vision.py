@@ -121,6 +121,73 @@ def _ocr_blocks_from_image(image_path: Path) -> list[dict]:
     return blocks
 
 
+def _ocr_blocks_from_image_enhanced(image_path: Path) -> list[dict]:
+    """
+    Multi-pass OCR for PNG/web images.
+    Runs OCR on original, grayscale+autocontrast, and upscaled variants, then deduplicates.
+    """
+    blocks: list[dict] = []
+    blocks.extend(_ocr_blocks_from_image(image_path))
+
+    with Image.open(image_path) as img:
+        gray = img.convert("L")
+        gray = Image.eval(gray, lambda p: min(255, max(0, int((p - 128) * 1.4 + 128))))
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_gray:
+            gray_path = Path(tmp_gray.name)
+        gray.save(gray_path)
+        blocks.extend(_ocr_blocks_from_image(gray_path))
+        gray_path.unlink(missing_ok=True)
+
+        upscaled = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_up:
+            up_path = Path(tmp_up.name)
+        upscaled.save(up_path)
+        up_blocks = _ocr_blocks_from_image(up_path)
+        for b in up_blocks:
+            b["x"] = int((b.get("x") or 0) / 2)
+            b["y"] = int((b.get("y") or 0) / 2)
+            b["w"] = int((b.get("w") or 0) / 2)
+            b["h"] = int((b.get("h") or 0) / 2)
+        blocks.extend(up_blocks)
+        up_path.unlink(missing_ok=True)
+
+        # Tiled OCR pass improves dense UI text detection in large screenshots.
+        tile_w = 1200
+        tile_h = 1200
+        overlap = 120
+        for y0 in range(0, max(1, img.height), max(1, tile_h - overlap)):
+            for x0 in range(0, max(1, img.width), max(1, tile_w - overlap)):
+                x1 = min(img.width, x0 + tile_w)
+                y1 = min(img.height, y0 + tile_h)
+                if x1 - x0 < 200 or y1 - y0 < 200:
+                    continue
+                tile = img.crop((x0, y0, x1, y1))
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_tile:
+                    tile_path = Path(tmp_tile.name)
+                tile.save(tile_path)
+                tile_blocks = _ocr_blocks_from_image(tile_path)
+                tile_path.unlink(missing_ok=True)
+                for b in tile_blocks:
+                    b["x"] = (b.get("x") or 0) + x0
+                    b["y"] = (b.get("y") or 0) + y0
+                blocks.extend(tile_blocks)
+
+    dedup: dict[tuple[str, int, int], dict] = {}
+    for block in blocks:
+        key = (
+            (block.get("text") or "").strip().lower(),
+            int((block.get("x") or 0) / 8),
+            int((block.get("y") or 0) / 8),
+        )
+        existing = dedup.get(key)
+        if existing is None or (block.get("confidence") or 0) > (existing.get("confidence") or 0):
+            dedup[key] = block
+    out = list(dedup.values())
+    # Keep stronger candidates first and reduce noisy low-confidence tails.
+    out.sort(key=lambda b: (b.get("confidence") or 0), reverse=True)
+    return out[:1200]
+
+
 def _infer_components_from_ocr(text_blocks: list[dict]) -> list[dict]:
     components: list[dict] = []
     input_keywords = {"email", "password", "username", "search", "phone", "name"}
@@ -140,6 +207,28 @@ def _infer_components_from_ocr(text_blocks: list[dict]) -> list[dict]:
             components.append({"type": "button", "label": text, "x": x, "y": y, "w": w, "h": h})
 
     return components[:200]
+
+
+def _build_detailed_caption(
+    page_name: str,
+    source_type: str,
+    layout: list[dict],
+    text_blocks: list[dict],
+    components: list[dict],
+    style_tokens: dict,
+) -> str:
+    top_text = [b.get("text", "") for b in text_blocks[:8] if b.get("text")]
+    palette = style_tokens.get("dominant_colors", [])
+    comp_types: dict[str, int] = {}
+    for c in components:
+        comp_types[c.get("type", "unknown")] = comp_types.get(c.get("type", "unknown"), 0) + 1
+    comp_summary = ", ".join(f"{k}:{v}" for k, v in sorted(comp_types.items())) or "none"
+    return (
+        f"Page '{page_name}' ({source_type}) with {len(layout)} layout regions, "
+        f"{len(text_blocks)} text blocks, and components [{comp_summary}]. "
+        f"Top visible text: {top_text}. Dominant colors: {palette}."
+    )
+
 
 
 @router.post("/analyze_source")
@@ -168,7 +257,7 @@ async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
         page = pdf[payload.target_page - 1]
         bitmap = page.render(scale=2)
         bitmap.to_pil().save(image_tmp)
-        ocr_blocks = _ocr_blocks_from_image(image_tmp)
+        ocr_blocks = _ocr_blocks_from_image_enhanced(image_tmp)
         text_blocks.extend(ocr_blocks)
         components = _infer_components_from_ocr(ocr_blocks)
         style_tokens = _extract_style_tokens(image_tmp)
@@ -177,11 +266,11 @@ async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
         summary = f"PDF page {payload.target_page} analyzed with extracted text content."
     elif source_type == "image":
         _, size = _image_meta(temp_path)
-        text_blocks = _ocr_blocks_from_image(temp_path)
+        text_blocks = _ocr_blocks_from_image_enhanced(temp_path)
         components = _infer_components_from_ocr(text_blocks)
         layout = [{"role": "image", "width": size[0], "height": size[1]}]
         style_tokens = _extract_style_tokens(temp_path)
-        summary = f"Image analyzed with OCR text blocks ({len(text_blocks)}) and inferred components ({len(components)})."
+        summary = f"Image analyzed with enhanced OCR text blocks ({len(text_blocks)}) and inferred components ({len(components)})."
     else:
         raise HTTPException(status_code=400, detail="Unsupported source type")
 
@@ -194,6 +283,9 @@ async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
         "components": components,
         "style_tokens": style_tokens,
         "summary": summary,
+        "detailed_caption": _build_detailed_caption(
+            payload.page_name or "unnamed-page", source_type, layout, text_blocks, components, style_tokens
+        ),
     }
 
 
@@ -282,4 +374,5 @@ async def compare_images(payload: CompareImagesRequest) -> dict:
         "generated_size": {"width": gen_size[0], "height": gen_size[1]},
         "correction_hints": hints,
     }
+
 
