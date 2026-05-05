@@ -12,7 +12,7 @@ router = APIRouter(prefix="/filesystem", tags=["filesystem"])
 
 logger = logging.getLogger(__name__)
 
-SERVE_PROCESSES: dict[int, subprocess.Popen] = {}
+SERVE_PROCESSES: dict[int, dict] = {}
 
 
 def _safe_path(path: str) -> Path:
@@ -106,26 +106,53 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         logger.warning(f"[SERVE_PROJECT] Port {port} outside exposed range, using 9000")
         port = 9000
     
-    # Find HTML file in directory
+    # Find HTML file in directory (recursive to support nested outputs).
     file_path = ""
     if payload.file:
-        file_path = f"/{payload.file}"
+        candidate_file = (cwd / payload.file).resolve()
+        if not candidate_file.exists() or not candidate_file.is_file():
+            raise HTTPException(status_code=400, detail=f"Requested file not found: {payload.file}")
+        try:
+            rel = candidate_file.relative_to(cwd)
+            file_path = f"/{str(rel).replace('\\', '/')}"
+        except Exception:
+            file_path = f"/{payload.file}"
     else:
-        # Auto-detect HTML file
-        html_files = list(cwd.glob("*.html"))
+        # Auto-detect latest HTML file recursively.
+        html_files = list(cwd.rglob("*.html"))
         if html_files:
-            # Get most recently modified HTML file
             html_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            file_path = f"/{html_files[0].name}"
-            logger.info(f"[SERVE_PROJECT] Auto-detected HTML file: {html_files[0].name}")
+            selected = html_files[0]
+            rel = selected.relative_to(cwd)
+            file_path = f"/{str(rel).replace('\\', '/')}"
+            logger.info(f"[SERVE_PROJECT] Auto-detected HTML file: {rel}")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No HTML file found under directory: {cwd}. Provide `file` explicitly.",
+            )
     
     logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={port}, file={file_path}")
 
-    existing = SERVE_PROCESSES.get(port)
-    if existing and existing.poll() is None:
-        response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "already_running"}
-        logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
-        return response
+    existing_meta = SERVE_PROCESSES.get(port)
+    if existing_meta and existing_meta["process"].poll() is None:
+        existing_cwd = Path(existing_meta["cwd"])
+        # Restart server if directory changed, otherwise reuse process and update URL.
+        if existing_cwd != cwd:
+            logger.info(f"[SERVE_PROJECT] CWD changed for port {port}: {existing_cwd} -> {cwd}. Restarting server.")
+            existing_meta["process"].terminate()
+            try:
+                existing_meta["process"].wait(timeout=5)
+            except Exception:
+                existing_meta["process"].kill()
+        else:
+            existing_meta["last_file_path"] = file_path
+            response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "already_running"}
+            logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
+            return response
+
+    if existing_meta and existing_meta["process"].poll() is not None:
+        SERVE_PROCESSES.pop(port, None)
 
     proc = subprocess.Popen(
         ["python", "-m", "http.server", str(port)],
@@ -133,7 +160,7 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    SERVE_PROCESSES[port] = proc
+    SERVE_PROCESSES[port] = {"process": proc, "cwd": str(cwd), "last_file_path": file_path}
     response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "started"}
     logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
     return response
