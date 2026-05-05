@@ -95,6 +95,7 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
 
     Use this to get a preview URL after writing HTML/CSS/JS files.
     Only ports 9000-9100 are exposed externally.
+    Auto-detects HTML files in the directory and returns the specific file URL.
     Returns `url` and `status` (`started` or `already_running`).
     """
     cwd = _safe_path(payload.cwd)
@@ -105,11 +106,24 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         logger.warning(f"[SERVE_PROJECT] Port {port} outside exposed range, using 9000")
         port = 9000
     
-    logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={port}")
+    # Find HTML file in directory
+    file_path = ""
+    if payload.file:
+        file_path = f"/{payload.file}"
+    else:
+        # Auto-detect HTML file
+        html_files = list(cwd.glob("*.html"))
+        if html_files:
+            # Get most recently modified HTML file
+            html_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            file_path = f"/{html_files[0].name}"
+            logger.info(f"[SERVE_PROJECT] Auto-detected HTML file: {html_files[0].name}")
+    
+    logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={port}, file={file_path}")
 
     existing = SERVE_PROCESSES.get(port)
     if existing and existing.poll() is None:
-        response = {"url": f"http://178.194.34.219:{port}", "status": "already_running"}
+        response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "already_running"}
         logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
         return response
 
@@ -120,7 +134,7 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         stderr=subprocess.DEVNULL,
     )
     SERVE_PROCESSES[port] = proc
-    response = {"url": f"http://178.194.34.219:{port}", "status": "started"}
+    response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "started"}
     logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
     return response
 

@@ -59,11 +59,16 @@ class ServeProjectRequest(BaseModel):
         examples=["prototype-app/dist"],
     )
     port: int = Field(
-        default=4173,
+        default=9000,
         ge=1024,
         le=65535,
-        description="Local HTTP port used by the static preview server.",
-        examples=[4173],
+        description="Local HTTP port used by the static preview server. Only 9000-9100 are exposed.",
+        examples=[9000],
+    )
+    file: str | None = Field(
+        default=None,
+        description="Optional file path to append to the URL (e.g., 'index.html').",
+        examples=["join-waitlist.html"],
     )
 
 
