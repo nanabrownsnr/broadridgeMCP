@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     PERSONA_ID_HEADER: str = "Persona-Id"
 
     VISION_API_URL: str = "http://localhost:8012"
+    OCR_BACKEND: str = "paddle"
 
     CLIENT_ID: str = ""
     CLIENT_SECRET: str = ""

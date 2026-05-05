@@ -10,11 +10,18 @@ from bs4 import BeautifulSoup
 from fastapi import APIRouter, HTTPException
 from PIL import Image
 from rapidocr_onnxruntime import RapidOCR
+from app.core.config import settings
+
+try:
+    from paddleocr import PaddleOCR  # type: ignore
+except Exception:  # pragma: no cover
+    PaddleOCR = None  # type: ignore
 
 from app.schemas.vision import AnalyzeSourceRequest, CompareImagesRequest
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 OCR_ENGINE = RapidOCR()
+PADDLE_ENGINE = PaddleOCR(use_angle_cls=True, lang="en", show_log=False) if PaddleOCR else None
 
 
 async def _download_to_temp_file(source_url: str, headers: dict[str, str] | None = None) -> tuple[Path, str | None, str]:
@@ -94,30 +101,76 @@ def _extract_style_tokens(image_path: Path) -> dict:
 
 
 def _ocr_blocks_from_image(image_path: Path) -> list[dict]:
-    ocr_result, _ = OCR_ENGINE(str(image_path))
-    if not ocr_result:
-        return []
-
+    backend = (settings.OCR_BACKEND or "paddle").strip().lower()
     blocks: list[dict] = []
-    for item in ocr_result:
-        points = item[0]
-        text = (item[1] or "").strip()
-        conf = float(item[2]) if len(item) > 2 and item[2] is not None else None
-        if not text:
-            continue
-        xs = [int(p[0]) for p in points]
-        ys = [int(p[1]) for p in points]
-        blocks.append(
-            {
-                "text": text,
-                "role": "ocr_text",
-                "x": min(xs),
-                "y": min(ys),
-                "w": max(xs) - min(xs),
-                "h": max(ys) - min(ys),
-                "confidence": conf,
-            }
-        )
+
+    def _from_rapid() -> list[dict]:
+        ocr_result, _ = OCR_ENGINE(str(image_path))
+        if not ocr_result:
+            return []
+        out: list[dict] = []
+        for item in ocr_result:
+            points = item[0]
+            text = (item[1] or "").strip()
+            conf = float(item[2]) if len(item) > 2 and item[2] is not None else None
+            if not text:
+                continue
+            xs = [int(p[0]) for p in points]
+            ys = [int(p[1]) for p in points]
+            out.append(
+                {
+                    "text": text,
+                    "role": "ocr_text",
+                    "x": min(xs),
+                    "y": min(ys),
+                    "w": max(xs) - min(xs),
+                    "h": max(ys) - min(ys),
+                    "confidence": conf,
+                }
+            )
+        return out
+
+    def _from_paddle() -> list[dict]:
+        if PADDLE_ENGINE is None:
+            return []
+        res = PADDLE_ENGINE.ocr(str(image_path), cls=True)
+        out: list[dict] = []
+        if not res:
+            return out
+        lines = res[0] if isinstance(res, list) and len(res) > 0 else []
+        for line in lines:
+            if not line or len(line) < 2:
+                continue
+            box = line[0]
+            rec = line[1]
+            text = (rec[0] if rec else "").strip()
+            conf = float(rec[1]) if rec and len(rec) > 1 else None
+            if not text:
+                continue
+            xs = [int(p[0]) for p in box]
+            ys = [int(p[1]) for p in box]
+            out.append(
+                {
+                    "text": text,
+                    "role": "ocr_text",
+                    "x": min(xs),
+                    "y": min(ys),
+                    "w": max(xs) - min(xs),
+                    "h": max(ys) - min(ys),
+                    "confidence": conf,
+                }
+            )
+        return out
+
+    if backend == "paddle":
+        blocks = _from_paddle()
+        if not blocks:
+            blocks = _from_rapid()
+    else:
+        blocks = _from_rapid()
+        if not blocks:
+            blocks = _from_paddle()
+
     return blocks
 
 
