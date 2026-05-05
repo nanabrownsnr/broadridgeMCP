@@ -21,7 +21,7 @@ from app.schemas.vision import AnalyzeSourceRequest, CompareImagesRequest
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 OCR_ENGINE = RapidOCR()
-PADDLE_ENGINE = PaddleOCR(use_angle_cls=True, lang="en", show_log=False) if PaddleOCR else None
+PADDLE_ENGINE = PaddleOCR(use_angle_cls=True, lang="en") if PaddleOCR else None
 
 
 async def _download_to_temp_file(source_url: str, headers: dict[str, str] | None = None) -> tuple[Path, str | None, str]:
