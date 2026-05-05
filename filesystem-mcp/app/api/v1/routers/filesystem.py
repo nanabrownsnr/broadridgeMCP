@@ -94,25 +94,33 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
     Start or reuse a static HTTP server for previewing generated pages.
 
     Use this to get a preview URL after writing HTML/CSS/JS files.
+    Only ports 9000-9100 are exposed externally.
     Returns `url` and `status` (`started` or `already_running`).
     """
     cwd = _safe_path(payload.cwd)
-    logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={payload.port}")
+    port = payload.port
+    
+    # Force ports to exposed range 9000-9100
+    if port < 9000 or port > 9100:
+        logger.warning(f"[SERVE_PROJECT] Port {port} outside exposed range, using 9000")
+        port = 9000
+    
+    logger.info(f"[SERVE_PROJECT] REQUEST - cwd={cwd}, port={port}")
 
-    existing = SERVE_PROCESSES.get(payload.port)
+    existing = SERVE_PROCESSES.get(port)
     if existing and existing.poll() is None:
-        response = {"url": f"http://178.194.34.219:{payload.port}", "status": "already_running"}
+        response = {"url": f"http://178.194.34.219:{port}", "status": "already_running"}
         logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
         return response
 
     proc = subprocess.Popen(
-        ["python", "-m", "http.server", str(payload.port)],
+        ["python", "-m", "http.server", str(port)],
         cwd=str(cwd),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    SERVE_PROCESSES[payload.port] = proc
-    response = {"url": f"http://178.194.34.219:{payload.port}", "status": "started"}
+    SERVE_PROCESSES[port] = proc
+    response = {"url": f"http://178.194.34.219:{port}", "status": "started"}
     logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
     return response
 
