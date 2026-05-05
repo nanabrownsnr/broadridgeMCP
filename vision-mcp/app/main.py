@@ -1,10 +1,14 @@
 from app.api.v1.routers.vision import router as vision_router
 from app.core.config import settings
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_mcp import FastApiMCP
 from app.system.license_server import monitor_license_server
 import asyncio
+import logging
+import time
+
+logger = logging.getLogger("mcp")
 
 app = FastAPI(title=settings.APP_TITLE, version=settings.VERSION, root_path=settings.ROOT_PATH)
 
@@ -15,6 +19,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def log_mcp_requests(request: Request, call_next):
+    start = time.time()
+    path = request.url.path
+    method = request.method
+    
+    if "/mcp" in path or "/api/v1" in path:
+        body = await request.body()
+        if body:
+            logger.info(f"[MCP-IN] {method} {path} | Body: {body.decode('utf-8', errors='ignore')[:500]}")
+        else:
+            logger.info(f"[MCP-IN] {method} {path} | No body")
+    
+    response = await call_next(request)
+    duration = time.time() - start
+    
+    if "/mcp" in path or "/api/v1" in path:
+        logger.info(f"[MCP-OUT] {method} {path} | Status: {response.status_code} | Time: {duration:.3f}s")
+    
+    return response
 
 app.include_router(vision_router, prefix=settings.API_V1_STR)
 
