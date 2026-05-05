@@ -23,6 +23,12 @@ def _safe_path(path: str) -> Path:
 
 @router.post("/read_files")
 async def read_files(payload: ReadFilesRequest) -> dict:
+    """
+    Read one or more text files from the allowed workspace.
+
+    Use this tool when the agent needs project context before editing.
+    Returns a map of requested paths to UTF-8 content. Missing files return an empty string.
+    """
     output: dict[str, str] = {}
     for raw_path in payload.paths:
         path = _safe_path(raw_path)
@@ -35,6 +41,12 @@ async def read_files(payload: ReadFilesRequest) -> dict:
 
 @router.post("/write_files")
 async def write_files(payload: WriteFilesRequest) -> dict:
+    """
+    Write one or more files into the allowed workspace.
+
+    Use this after planning code changes. Parent directories are created automatically.
+    Returns absolute paths of files written.
+    """
     written: list[str] = []
     for file_item in payload.files:
         path = _safe_path(file_item.path)
@@ -46,6 +58,12 @@ async def write_files(payload: WriteFilesRequest) -> dict:
 
 @router.post("/run_command")
 async def run_command(payload: RunCommandRequest) -> dict:
+    """
+    Execute a shell command inside the workspace and capture output.
+
+    Use for build, lint, test, and other project commands.
+    Returns `return_code`, `stdout`, and `stderr`.
+    """
     cwd = _safe_path(payload.cwd) if payload.cwd else Path(settings.WORKSPACE_ROOT).resolve()
     proc = await asyncio.create_subprocess_shell(
         payload.cmd,
@@ -63,6 +81,12 @@ async def run_command(payload: RunCommandRequest) -> dict:
 
 @router.post("/serve_project")
 async def serve_project(payload: ServeProjectRequest) -> dict:
+    """
+    Start or reuse a static HTTP server for previewing generated pages.
+
+    Use this to get a preview URL after writing HTML/CSS/JS files.
+    Returns `url` and `status` (`started` or `already_running`).
+    """
     cwd = _safe_path(payload.cwd)
 
     existing = SERVE_PROCESSES.get(payload.port)
@@ -81,6 +105,11 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
 
 @router.get("/snapshot_diff")
 async def snapshot_diff() -> dict:
+    """
+    Return a simple workspace file snapshot.
+
+    Use this as a lightweight way to enumerate generated artifacts after tool execution.
+    """
     root = Path(settings.WORKSPACE_ROOT).resolve()
     changed: list[str] = []
     for dirpath, _, filenames in os.walk(root):

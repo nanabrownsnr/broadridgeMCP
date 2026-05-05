@@ -70,6 +70,12 @@ def _image_meta(image_path: Path) -> tuple[list[dict], tuple[int, int]]:
 
 @router.post("/analyze_source")
 async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
+    """
+    Analyze a remote source URL and normalize it into LLM-friendly UI context.
+
+    Supported sources: HTML, PDF, and image files.
+    Use this before page regeneration so a text-only LLM can reason over structure, text, and components.
+    """
     headers = payload.headers or {}
     async with httpx.AsyncClient(timeout=90, follow_redirects=True) as client:
         response = await client.get(payload.source_url, headers=headers)
