@@ -19,7 +19,8 @@ app.add_middleware(
 app.include_router(filesystem_router, prefix=settings.API_V1_STR)
 
 mcp = FastApiMCP(app)
-mcp.mount()
+mcp.mount_http(mount_path="/mcp")
+mcp.mount_sse(mount_path="/sse")
 
 
 @app.on_event("startup")
