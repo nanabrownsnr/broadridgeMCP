@@ -284,7 +284,7 @@ def _build_detailed_caption(
 
 
 
-@router.post("/analyze_source")
+@router.post("/analyze_source", operation_id="analyze_source")
 async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
     """
     Analyze a remote source URL and normalize it into LLM-friendly UI context.
@@ -373,7 +373,7 @@ def _jaccard_similarity(a: set[str], b: set[str]) -> float:
     return inter / union if union else 0.0
 
 
-@router.post("/compare_images")
+@router.post("/compare_images", operation_id="compare_images")
 async def compare_images(payload: CompareImagesRequest) -> dict:
     """
     Compare source and generated page images and return fidelity metrics plus correction hints.

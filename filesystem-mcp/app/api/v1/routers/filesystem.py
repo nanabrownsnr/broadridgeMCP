@@ -45,7 +45,7 @@ def _find_available_port(start: int = 9000, end: int = 9100) -> int:
     raise HTTPException(status_code=503, detail="No available preview ports in range 9000-9100")
 
 
-@router.post("/read_files")
+@router.post("/read_files", operation_id="read_files")
 async def read_files(payload: ReadFilesRequest) -> dict:
     """
     Read one or more text files from the allowed workspace.
@@ -73,7 +73,7 @@ async def read_files(payload: ReadFilesRequest) -> dict:
     return {"files": output}
 
 
-@router.post("/write_files")
+@router.post("/write_files", operation_id="write_files")
 async def write_files(payload: WriteFilesRequest) -> dict:
     """
     Write one or more files into the allowed workspace.
@@ -115,7 +115,7 @@ async def write_files(payload: WriteFilesRequest) -> dict:
     return response
 
 
-@router.post("/run_command")
+@router.post("/run_command", operation_id="run_command")
 async def run_command(payload: RunCommandRequest) -> dict:
     """
     Execute a shell command inside the workspace and capture output.
@@ -147,7 +147,7 @@ async def run_command(payload: RunCommandRequest) -> dict:
     }
 
 
-@router.post("/serve_project")
+@router.post("/serve_project", operation_id="serve_project")
 async def serve_project(payload: ServeProjectRequest) -> dict:
     """
     Start or reuse a static HTTP preview server for generated pages.
@@ -260,7 +260,7 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
     return response
 
 
-@router.get("/snapshot_diff")
+@router.get("/snapshot_diff", operation_id="snapshot_diff")
 async def snapshot_diff() -> dict:
     """
     Return a simple workspace file snapshot.
