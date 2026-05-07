@@ -33,6 +33,11 @@ class WriteFilesRequest(BaseModel):
         ...,
         description="List of file write operations.",
     )
+    project: str | None = Field(
+        default=None,
+        description="Optional project namespace. Relative write paths are rooted under WORKSPACE_ROOT/projects/{project}.",
+        examples=["twynity_joinwaitlist_v2"],
+    )
 
 
 class RunCommandRequest(BaseModel):
@@ -53,22 +58,36 @@ class RunCommandRequest(BaseModel):
 class ServeProjectRequest(BaseModel):
     """Request payload for starting a static file server for preview."""
 
-    cwd: str = Field(
-        ...,
-        description="Directory to serve over HTTP.",
+    cwd: str | None = Field(
+        default=None,
+        description="Directory to serve over HTTP. If omitted, uses WORKSPACE_ROOT/projects/{project}.",
         examples=["prototype-app/dist"],
     )
-    port: int = Field(
-        default=9000,
+    project: str | None = Field(
+        default=None,
+        description="Optional project namespace used when `cwd` is not provided.",
+        examples=["twynity_joinwaitlist_v2"],
+    )
+    port: int | None = Field(
+        default=None,
         ge=1024,
         le=65535,
-        description="Local HTTP port used by the static preview server. Only 9000-9100 are exposed.",
+        description="Optional preferred port. If omitted, an available port in 9000-9100 is selected.",
         examples=[9000],
+    )
+    auto_port: bool = Field(
+        default=True,
+        description="When true, choose the first available port in 9000-9100 if `port` is omitted or unavailable.",
     )
     file: str | None = Field(
         default=None,
         description="Optional file path to append to the URL (e.g., 'index.html').",
         examples=["join-waitlist.html"],
+    )
+    base_url: str | None = Field(
+        default=None,
+        description="Optional public base URL override, e.g. 'http://178.194.34.219'.",
+        examples=["http://178.194.34.219"],
     )
 
 

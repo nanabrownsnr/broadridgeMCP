@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/filesystem", tags=["filesystem"])
 logger = logging.getLogger(__name__)
 
 SERVE_PROCESSES: dict[int, dict] = {}
+DEFAULT_PROJECT = "default"
 
 
 def _safe_path(path: str) -> Path:
@@ -21,6 +23,26 @@ def _safe_path(path: str) -> Path:
     if root not in candidate.parents and candidate != root:
         raise HTTPException(status_code=400, detail=f"Path escapes WORKSPACE_ROOT: {path}")
     return candidate
+
+
+def _sanitize_project_name(project: str | None) -> str:
+    raw = (project or DEFAULT_PROJECT).strip().lower()
+    clean = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-")
+    return clean or DEFAULT_PROJECT
+
+
+def _resolve_project_root(project: str | None) -> Path:
+    root = Path(settings.WORKSPACE_ROOT).resolve()
+    return (root / "projects" / _sanitize_project_name(project)).resolve()
+
+
+def _find_available_port(start: int = 9000, end: int = 9100) -> int:
+    for p in range(start, end + 1):
+        existing = SERVE_PROCESSES.get(p)
+        if existing and existing["process"].poll() is None:
+            continue
+        return p
+    raise HTTPException(status_code=503, detail="No available preview ports in range 9000-9100")
 
 
 @router.post("/read_files")
@@ -53,14 +75,20 @@ async def write_files(payload: WriteFilesRequest) -> dict:
     for i, f in enumerate(payload.files):
         logger.info(f"[WRITE_FILES] File {i+1}: path={f.path}, size={len(f.content)} chars")
     
+    project_root = _resolve_project_root(payload.project)
+    project_root.mkdir(parents=True, exist_ok=True)
+
     written: list[str] = []
     for file_item in payload.files:
-        path = _safe_path(file_item.path)
+        if Path(file_item.path).is_absolute():
+            path = _safe_path(file_item.path)
+        else:
+            path = _safe_path(str(project_root / file_item.path))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(file_item.content, encoding="utf-8")
         written.append(str(path))
     
-    response = {"written_files": written}
+    response = {"written_files": written, "project_root": str(project_root)}
     logger.info(f"[WRITE_FILES] RESPONSE - {response}")
     return response
 
@@ -98,13 +126,27 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
     Auto-detects HTML files in the directory and returns the specific file URL.
     Returns `url` and `status` (`started` or `already_running`).
     """
-    cwd = _safe_path(payload.cwd)
-    port = payload.port
-    
-    # Force ports to exposed range 9000-9100
-    if port < 9000 or port > 9100:
-        logger.warning(f"[SERVE_PROJECT] Port {port} outside exposed range, using 9000")
-        port = 9000
+    project_root = _resolve_project_root(payload.project)
+    project_root.mkdir(parents=True, exist_ok=True)
+    cwd = _safe_path(payload.cwd) if payload.cwd else project_root
+
+    if payload.port is not None:
+        port = payload.port
+        if port < 9000 or port > 9100:
+            logger.warning(f"[SERVE_PROJECT] Port {port} outside exposed range, forcing auto port")
+            port = _find_available_port()
+    else:
+        port = _find_available_port()
+
+    # If requested port is busy with another cwd and auto_port is enabled, allocate new.
+    existing_for_port = SERVE_PROCESSES.get(port)
+    if (
+        existing_for_port
+        and existing_for_port["process"].poll() is None
+        and Path(existing_for_port["cwd"]) != cwd
+        and payload.auto_port
+    ):
+        port = _find_available_port()
     
     # Find HTML file in directory (recursive to support nested outputs).
     file_path = ""
@@ -149,7 +191,8 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
                 existing_meta["process"].kill()
         else:
             existing_meta["last_file_path"] = file_path
-            response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "already_running"}
+            base_url = (payload.base_url or "http://178.194.34.219").rstrip("/")
+            response = {"url": f"{base_url}:{port}{file_path}", "status": "already_running", "project_root": str(project_root)}
             logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
             return response
 
@@ -163,7 +206,13 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
         stderr=subprocess.DEVNULL,
     )
     SERVE_PROCESSES[port] = {"process": proc, "cwd": str(cwd), "last_file_path": file_path}
-    response = {"url": f"http://178.194.34.219:{port}{file_path}", "status": "started"}
+    base_url = (payload.base_url or "http://178.194.34.219").rstrip("/")
+    response = {
+        "url": f"{base_url}:{port}{file_path}",
+        "status": "started",
+        "project_root": str(project_root),
+        "port": port,
+    }
     logger.info(f"[SERVE_PROJECT] RESPONSE - {response}")
     return response
 
