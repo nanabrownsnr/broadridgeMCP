@@ -114,7 +114,8 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
             raise HTTPException(status_code=400, detail=f"Requested file not found: {payload.file}")
         try:
             rel = candidate_file.relative_to(cwd)
-            file_path = f"/{str(rel).replace('\\', '/')}"
+            rel_str = str(rel).replace('\\', '/')
+            file_path = f"/{rel_str}"
         except Exception:
             file_path = f"/{payload.file}"
     else:
@@ -124,7 +125,8 @@ async def serve_project(payload: ServeProjectRequest) -> dict:
             html_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             selected = html_files[0]
             rel = selected.relative_to(cwd)
-            file_path = f"/{str(rel).replace('\\', '/')}"
+            rel_str = str(rel).replace('\\', '/')
+            file_path = f"/{rel_str}"
             logger.info(f"[SERVE_PROJECT] Auto-detected HTML file: {rel}")
         else:
             raise HTTPException(
