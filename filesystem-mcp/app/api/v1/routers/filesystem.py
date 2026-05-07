@@ -50,8 +50,18 @@ async def read_files(payload: ReadFilesRequest) -> dict:
     """
     Read one or more text files from the allowed workspace.
 
-    Use this tool when the agent needs project context before editing.
-    Returns a map of requested paths to UTF-8 content. Missing files return an empty string.
+    Use when:
+    1. You need existing code/context before edits.
+    2. You need to verify generated files after writes.
+
+    Input expectations:
+    1. `paths` is required.
+    2. Relative paths are resolved from WORKSPACE_ROOT.
+    3. Absolute paths are allowed if still inside WORKSPACE_ROOT.
+
+    Behavior:
+    1. Missing files return an empty string in the response map.
+    2. Does not create or modify files.
     """
     output: dict[str, str] = {}
     for raw_path in payload.paths:
@@ -68,8 +78,20 @@ async def write_files(payload: WriteFilesRequest) -> dict:
     """
     Write one or more files into the allowed workspace.
 
-    Use this after planning code changes. Parent directories are created automatically.
-    Returns absolute paths of files written.
+    Use when:
+    1. Creating/updating HTML/CSS/JS or support files.
+    2. Writing feature-specific changes in a project namespace.
+
+    Input expectations:
+    1. `files` is required.
+    2. `project` is optional. If omitted, defaults to project namespace `default`.
+    3. Relative file paths are rooted at WORKSPACE_ROOT/projects/{project}.
+    4. Absolute file paths are allowed only within WORKSPACE_ROOT.
+
+    Behavior:
+    1. Parent directories are auto-created.
+    2. Returns `written_files` and resolved `project_root`.
+    3. This endpoint does not serve URLs; call `serve_project` after writing.
     """
     logger.info(f"[WRITE_FILES] REQUEST - {len(payload.files)} files")
     for i, f in enumerate(payload.files):
@@ -98,8 +120,17 @@ async def run_command(payload: RunCommandRequest) -> dict:
     """
     Execute a shell command inside the workspace and capture output.
 
-    Use for build, lint, test, and other project commands.
-    Returns `return_code`, `stdout`, and `stderr`.
+    Use when:
+    1. Running build/lint/test steps.
+    2. Running local tooling required before preview.
+
+    Input expectations:
+    1. `cmd` is required.
+    2. `cwd` is optional; defaults to WORKSPACE_ROOT.
+
+    Behavior:
+    1. Returns `return_code`, `stdout`, and `stderr`.
+    2. Non-zero return code does not throw HTTP error; caller should inspect `return_code`.
     """
     cwd = _safe_path(payload.cwd) if payload.cwd else Path(settings.WORKSPACE_ROOT).resolve()
     proc = await asyncio.create_subprocess_shell(
@@ -119,12 +150,24 @@ async def run_command(payload: RunCommandRequest) -> dict:
 @router.post("/serve_project")
 async def serve_project(payload: ServeProjectRequest) -> dict:
     """
-    Start or reuse a static HTTP server for previewing generated pages.
+    Start or reuse a static HTTP preview server for generated pages.
 
-    Use this to get a preview URL after writing HTML/CSS/JS files.
-    Only ports 9000-9100 are exposed externally.
-    Auto-detects HTML files in the directory and returns the specific file URL.
-    Returns `url` and `status` (`started` or `already_running`).
+    Use when:
+    1. You need a live URL for user review.
+    2. You want per-project isolation and dynamic ports.
+
+    Input expectations:
+    1. Provide either `cwd` or `project`.
+    2. If `project` is provided and `cwd` is omitted, serves WORKSPACE_ROOT/projects/{project}.
+    3. `port` is optional. If omitted, a free port in 9000-9100 is auto-selected.
+    4. `auto_port=true` allows reassignment when requested port is in use by another directory.
+    5. `file` is optional; if omitted, latest modified HTML file is auto-detected recursively.
+    6. `base_url` is optional; if omitted, service default URL is used.
+
+    Behavior:
+    1. Restarts server on same port if `cwd` changed and `auto_port` is false.
+    2. Returns `url`, `status`, `project_root`, and `port`.
+    3. Raises 400 if no HTML file can be resolved.
     """
     project_root = _resolve_project_root(payload.project)
     project_root.mkdir(parents=True, exist_ok=True)
@@ -222,7 +265,9 @@ async def snapshot_diff() -> dict:
     """
     Return a simple workspace file snapshot.
 
-    Use this as a lightweight way to enumerate generated artifacts after tool execution.
+    Use when:
+    1. You need quick visibility into generated artifacts.
+    2. You need a lightweight post-write inspection pass.
     """
     root = Path(settings.WORKSPACE_ROOT).resolve()
     changed: list[str] = []

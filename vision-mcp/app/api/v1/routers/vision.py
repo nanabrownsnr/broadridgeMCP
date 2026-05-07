@@ -289,8 +289,19 @@ async def analyze_source(payload: AnalyzeSourceRequest) -> dict:
     """
     Analyze a remote source URL and normalize it into LLM-friendly UI context.
 
-    Supported sources: HTML, PDF, and image files.
-    Use this before page regeneration so a text-only LLM can reason over structure, text, and components.
+    Use when:
+    1. Building or redesigning a page from reference URL/image/PDF.
+    2. Extracting layout, OCR text, inferred components, and style tokens.
+
+    Input expectations:
+    1. `source_url` is required.
+    2. `target_page` applies only when source is a PDF.
+    3. `headers` is optional for protected URLs.
+
+    Behavior:
+    1. Supports HTML, PDF, and image inputs.
+    2. Returns `detailed_caption` for richer downstream prompting.
+    3. Raises 400 for unsupported source types.
     """
     temp_path, content_type, response_text = await _download_to_temp_file(payload.source_url, payload.headers)
     source_type = _detect_source_type(temp_path, content_type)
@@ -367,7 +378,17 @@ async def compare_images(payload: CompareImagesRequest) -> dict:
     """
     Compare source and generated page images and return fidelity metrics plus correction hints.
 
-    Use this in redesign mode after each generation pass to drive auto-correction.
+    Use when:
+    1. Validating redesign fidelity after generation.
+    2. Driving automated correction loops before user review.
+
+    Input expectations:
+    1. `source_url` and `generated_url` are required and must both be images.
+    2. `headers` is optional for protected URLs.
+
+    Behavior:
+    1. Returns similarity metrics and actionable correction hints.
+    2. Raises 400 when non-image inputs are provided.
     """
     source_path, source_content_type, _ = await _download_to_temp_file(payload.source_url, payload.headers)
     gen_path, gen_content_type, _ = await _download_to_temp_file(payload.generated_url, payload.headers)

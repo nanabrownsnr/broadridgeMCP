@@ -6,18 +6,18 @@ class AnalyzeSourceRequest(BaseModel):
 
     source_url: str = Field(
         ...,
-        description="Public or authenticated URL to analyze.",
+        description="Required. Public or authenticated source URL to analyze.",
         examples=["https://example.com/page-3.html"],
     )
     page_name: str | None = Field(
         default=None,
-        description="Optional friendly page label used in the response.",
+        description="Optional friendly page label used in analysis output.",
         examples=["login-page"],
     )
     target_page: int = Field(
         default=1,
         ge=1,
-        description="PDF page number (1-based) to analyze when source is a PDF.",
+        description="PDF page number (1-based). Used only when source is a PDF.",
         examples=[1],
     )
     headers: dict[str, str] | None = Field(
@@ -32,12 +32,12 @@ class CompareImagesRequest(BaseModel):
 
     source_url: str = Field(
         ...,
-        description="Reference/source image URL representing the original page.",
+        description="Required. Reference/source image URL representing the original page.",
         examples=["https://example.com/source-page.png"],
     )
     generated_url: str = Field(
         ...,
-        description="Generated page screenshot URL to compare against the source.",
+        description="Required. Generated page screenshot URL to compare against the source.",
         examples=["https://example.com/generated-page.png"],
     )
     headers: dict[str, str] | None = Field(
