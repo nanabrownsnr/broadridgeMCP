@@ -127,3 +127,46 @@ class DiffSummaryResponse(BaseModel):
         description="Human-readable summary of the snapshot operation.",
     )
 
+
+class ActivePrototypeRequest(BaseModel):
+    """Request payload for querying active served prototypes."""
+
+    project: str | None = Field(
+        default=None,
+        description="Optional project namespace filter.",
+        examples=["twynity_joinwaitlist_v2"],
+    )
+    port: int | None = Field(
+        default=None,
+        ge=1024,
+        le=65535,
+        description="Optional port filter.",
+        examples=[9001],
+    )
+
+
+class StopServerRequest(BaseModel):
+    """Request payload for freeing/stopping a preview server."""
+
+    port: int = Field(
+        ...,
+        ge=1024,
+        le=65535,
+        description="Required. Port to stop.",
+        examples=[9001],
+    )
+
+
+class DeleteProjectRequest(BaseModel):
+    """Request payload for deleting a project namespace and optionally freeing its ports."""
+
+    project: str = Field(
+        ...,
+        description="Required project namespace to delete.",
+        examples=["twynity_joinwaitlist_v2"],
+    )
+    stop_servers: bool = Field(
+        default=True,
+        description="When true, stop active servers currently serving this project before deletion.",
+    )
+

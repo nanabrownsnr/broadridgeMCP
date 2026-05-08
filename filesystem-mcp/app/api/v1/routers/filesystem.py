@@ -2,12 +2,21 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 from app.core.config import settings
 from fastapi import APIRouter, HTTPException
-from app.schemas.filesystem import ReadFilesRequest, RunCommandRequest, ServeProjectRequest, WriteFilesRequest
+from app.schemas.filesystem import (
+    ActivePrototypeRequest,
+    DeleteProjectRequest,
+    ReadFilesRequest,
+    RunCommandRequest,
+    ServeProjectRequest,
+    StopServerRequest,
+    WriteFilesRequest,
+)
 
 router = APIRouter(prefix="/filesystem", tags=["filesystem"])
 
@@ -46,6 +55,21 @@ def _find_available_port(start: int = 9000, end: int = 9100) -> int:
 
 
 @router.post("/read_files", operation_id="read_files")
+def _stop_process_for_port(port: int) -> bool:
+    meta = SERVE_PROCESSES.get(port)
+    if not meta:
+        return False
+    proc = meta["process"]
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+    SERVE_PROCESSES.pop(port, None)
+    return True
+
+
 async def read_files(payload: ReadFilesRequest) -> dict:
     """
     Read one or more text files from the allowed workspace.
@@ -276,4 +300,109 @@ async def snapshot_diff() -> dict:
             full_path = Path(dirpath) / name
             changed.append(str(full_path))
     return {"changed_files": changed, "summary": "Filesystem snapshot generated"}
+
+
+@router.post("/active_prototypes", operation_id="active_prototypes")
+async def active_prototypes(payload: ActivePrototypeRequest) -> dict:
+    """
+    List active served prototype sessions and their bound projects/files.
+
+    Use when:
+    1. The user asks what is currently being served.
+    2. The agent needs current prototype state before update/delete/free-port operations.
+    """
+    requested_project_root = str(_resolve_project_root(payload.project)) if payload.project else None
+    results: list[dict] = []
+    for port, meta in SERVE_PROCESSES.items():
+        proc = meta["process"]
+        if proc.poll() is not None:
+            continue
+        if payload.port is not None and port != payload.port:
+            continue
+        cwd = str(meta["cwd"])
+        if requested_project_root and not cwd.startswith(requested_project_root):
+            continue
+        results.append(
+            {
+                "port": port,
+                "cwd": cwd,
+                "last_file_path": meta.get("last_file_path"),
+                "status": "running",
+            }
+        )
+    return {"active": results, "count": len(results)}
+
+
+@router.post("/served_files", operation_id="served_files")
+async def served_files(payload: ActivePrototypeRequest) -> dict:
+    """
+    Return files for currently served project context (active prototype view).
+
+    Use when:
+    1. User asks for the currently served prototype files.
+    2. Agent needs exact active HTML/CSS/JS paths before edits.
+    """
+    active = await active_prototypes(payload)
+    items = active.get("active", [])
+    if not items:
+        raise HTTPException(status_code=404, detail="No active prototype found for the given filter")
+
+    files_out: list[dict] = []
+    for item in items:
+        cwd = Path(item["cwd"])
+        html_files = sorted(cwd.rglob("*.html"))
+        css_files = sorted(cwd.rglob("*.css"))
+        js_files = sorted(cwd.rglob("*.js"))
+        files_out.append(
+            {
+                "port": item["port"],
+                "cwd": item["cwd"],
+                "html_files": [str(p) for p in html_files],
+                "css_files": [str(p) for p in css_files],
+                "js_files": [str(p) for p in js_files],
+            }
+        )
+    return {"served_files": files_out}
+
+
+@router.post("/stop_server", operation_id="stop_server")
+async def stop_server(payload: StopServerRequest) -> dict:
+    """
+    Stop/free a running preview server by port.
+
+    Use when user says:
+    1. free that port
+    2. stop serving on port X
+    """
+    stopped = _stop_process_for_port(payload.port)
+    if not stopped:
+        return {"port": payload.port, "status": "not_running"}
+    return {"port": payload.port, "status": "stopped"}
+
+
+@router.post("/delete_project", operation_id="delete_project")
+async def delete_project(payload: DeleteProjectRequest) -> dict:
+    """
+    Delete a project namespace under WORKSPACE_ROOT/projects/{project}.
+
+    Use when user says:
+    1. delete that prototype project
+    2. remove project X
+    """
+    project_root = _resolve_project_root(payload.project)
+    if payload.stop_servers:
+        to_stop: list[int] = []
+        prefix = str(project_root)
+        for port, meta in SERVE_PROCESSES.items():
+            proc = meta["process"]
+            if proc.poll() is None and str(meta["cwd"]).startswith(prefix):
+                to_stop.append(port)
+        for p in to_stop:
+            _stop_process_for_port(p)
+
+    if not project_root.exists():
+        return {"project_root": str(project_root), "status": "not_found"}
+
+    shutil.rmtree(project_root)
+    return {"project_root": str(project_root), "status": "deleted"}
 
