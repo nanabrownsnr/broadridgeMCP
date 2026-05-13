@@ -19,3 +19,13 @@ services:
       - ./vision-mcp/.env
     ports:
       - "8012:8000"
+
+  text-classifier-mcp:
+    build:
+      context: ./text-classifier-mcp
+    env_file:
+      - ./text-classifier-mcp/.env
+    ports:
+      - "8013:8000"
+    volumes:
+      - /home/nbrown:/workspace
