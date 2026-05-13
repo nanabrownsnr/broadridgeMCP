@@ -109,6 +109,14 @@ ENGINE = TextClassifierEngine()
 async def classify_text(payload: ClassifyTextRequest) -> dict:
     """
     Classify one IT triage text into labels like backend_bug, frontend_bug, or missing_feature.
+
+    Use when:
+    1. Classifying a single ticket/issue.
+    2. Routing an issue to the right engineering queue.
+
+    Follow-up guidance:
+    1. If top label is `needs_review` or confidence is low, ask a human to choose the correct label.
+    2. Then call `train_examples` with that human-labeled sample to improve model quality.
     """
     return ENGINE.classify(payload.text, payload.top_k)
 
@@ -117,6 +125,14 @@ async def classify_text(payload: ClassifyTextRequest) -> dict:
 async def batch_classify(payload: BatchClassifyRequest) -> dict:
     """
     Classify multiple text items in one request for high-throughput triage.
+
+    Use when:
+    1. Processing many tickets in one call.
+    2. Pre-routing issue lists before human review.
+
+    Follow-up guidance:
+    1. For items predicted as `needs_review`, capture human final labels.
+    2. Send those corrections via `train_examples`.
     """
     if not payload.texts:
         raise HTTPException(status_code=400, detail="texts must not be empty")
@@ -127,6 +143,13 @@ async def batch_classify(payload: BatchClassifyRequest) -> dict:
 async def train_examples(payload: TrainExamplesRequest) -> dict:
     """
     Incrementally train the classifier with project-specific labeled examples.
+
+    Primary workflow:
+    1. Run `classify_text` or `batch_classify`.
+    2. When output is `needs_review`, human selects the final correct label.
+    3. Submit that `(text, label)` pair here.
+
+    This creates a continuous feedback loop and improves future classifications.
     """
     return ENGINE.train_examples([x.model_dump() for x in payload.examples])
 
@@ -135,6 +158,8 @@ async def train_examples(payload: TrainExamplesRequest) -> dict:
 async def labels() -> dict:
     """
     Return supported classification labels for routing and validation.
+
+    Call this before `train_examples` to validate allowed labels.
     """
     return {"labels": ENGINE.labels}
 
@@ -143,5 +168,7 @@ async def labels() -> dict:
 async def model_info() -> dict:
     """
     Return model/backend metadata and deployment details.
+
+    Use this to verify CPU-optimized backend details and current model storage path.
     """
     return ENGINE.model_info()
