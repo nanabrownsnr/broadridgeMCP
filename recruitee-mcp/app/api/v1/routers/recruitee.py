@@ -234,12 +234,15 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
 
 
 @router.post("/list_candidates", operation_id="recruitee_list_candidates")
-async def list_candidates(payload: ListCandidatesRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
+async def list_candidates(
+    payload: ListCandidatesRequest | None = None,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
     """
     List candidates, optionally scoped by role (`offer_id`) and stage.
 
     Required input:
-    - none
+    - none (body is optional; if omitted, defaults are used)
 
     Optional input:
     - `offer_id`, `stage_id`, `limit`, `page`
@@ -253,6 +256,7 @@ async def list_candidates(payload: ListCandidatesRequest, platform_client: Platf
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
+    payload = payload or ListCandidatesRequest()
 
     params: dict[str, Any] = {"limit": payload.limit, "page": payload.page}
     if payload.offer_id is not None:
