@@ -10,7 +10,10 @@ from app.schemas.docusign import (
     CompletedDocumentsRequest,
     EnvelopeStatusRequest,
     ListCandidateEnvelopesRequest,
+    ListTemplatesRequest,
     SendEnvelopeRequest,
+    SendEnvelopeFromTemplateRequest,
+    TemplateDetailsRequest,
 )
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -139,6 +142,52 @@ async def send_envelope_for_signature(
     }
 
 
+@router.post("/send_envelope_from_template", operation_id="docusign_send_envelope_from_template")
+async def send_envelope_from_template(
+    payload: SendEnvelopeFromTemplateRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Send an envelope from an existing DocuSign template.
+
+    Use this for production flows where templates are managed in DocuSign UI and only template IDs are passed here.
+    """
+    token = _resolve_bearer_token(platform_client)
+    text_custom_fields = [{"name": "candidate_id", "value": payload.candidate_id, "show": "false"}]
+    if payload.client_id:
+        text_custom_fields.append({"name": "client_id", "value": payload.client_id, "show": "false"})
+
+    envelope_definition: dict[str, Any] = {
+        "templateId": payload.template_id,
+        "status": "sent",
+        "customFields": {"textCustomFields": text_custom_fields},
+        "templateRoles": [
+            {
+                "email": payload.recipient.email,
+                "name": payload.recipient.name,
+                "roleName": payload.role_name,
+            }
+        ],
+    }
+    if payload.subject:
+        envelope_definition["emailSubject"] = payload.subject
+    if payload.message:
+        envelope_definition["emailBlurb"] = payload.message
+
+    data = await _api_request("POST", "/envelopes", token, envelope_definition)
+    envelope_id = data.get("envelopeId")
+    if not envelope_id:
+        raise HTTPException(status_code=500, detail="DocuSign response missing envelopeId")
+    _index_envelope(payload.candidate_id, envelope_id, payload.recipient.email, payload.client_id)
+    return {
+        "candidate_id": payload.candidate_id,
+        "template_id": payload.template_id,
+        "envelope_id": envelope_id,
+        "status": data.get("status"),
+        "uri": data.get("uri"),
+    }
+
+
 @router.post("/get_envelope_status", operation_id="docusign_get_envelope_status")
 async def get_envelope_status(
     payload: EnvelopeStatusRequest,
@@ -220,6 +269,74 @@ async def get_completed_documents(
             )
 
     return {"candidate_id": payload.candidate_id, "count": len(docs), "documents": docs}
+
+
+@router.post("/list_templates", operation_id="docusign_list_templates")
+async def list_templates(
+    payload: ListTemplatesRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    List available DocuSign templates so agents can discover valid template IDs before sending.
+    """
+    token = _resolve_bearer_token(platform_client)
+    qs: list[str] = [f"count={payload.count}"]
+    if payload.search_text:
+        qs.append(f"search_text={payload.search_text}")
+    if payload.include_recipients:
+        qs.append("include=recipients")
+    query = "&".join(qs)
+    data = await _api_request("GET", f"/templates?{query}", token)
+
+    items: list[dict[str, Any]] = []
+    for t in data.get("envelopeTemplates", []):
+        row = {
+            "template_id": t.get("templateId") or t.get("template_id") or t.get("id"),
+            "name": t.get("name"),
+            "description": t.get("description"),
+            "created": t.get("created"),
+            "last_modified": t.get("lastModified"),
+            "shared": t.get("shared"),
+            "folder_id": t.get("folderId"),
+        }
+        if payload.include_recipients:
+            row["recipients"] = t.get("recipients")
+        items.append(row)
+    return {"count": len(items), "templates": items}
+
+
+@router.post("/get_template_details", operation_id="docusign_get_template_details")
+async def get_template_details(
+    payload: TemplateDetailsRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Get detailed metadata for a single DocuSign template, including recipients/documents when requested.
+    """
+    token = _resolve_bearer_token(platform_client)
+    include_parts: list[str] = []
+    if payload.include_documents:
+        include_parts.append("documents")
+    if payload.include_recipients:
+        include_parts.append("recipients")
+
+    path = f"/templates/{payload.template_id}"
+    if include_parts:
+        path = f"{path}?include={','.join(include_parts)}"
+    data = await _api_request("GET", path, token)
+    return {
+        "template_id": data.get("templateId") or payload.template_id,
+        "name": data.get("name"),
+        "description": data.get("description"),
+        "email_subject": data.get("emailSubject"),
+        "email_blurb": data.get("emailBlurb"),
+        "created": data.get("created"),
+        "last_modified": data.get("lastModified"),
+        "shared": data.get("shared"),
+        "documents": data.get("documents") if payload.include_documents else None,
+        "recipients": data.get("recipients") if payload.include_recipients else None,
+        "raw_template": data,
+    }
 
 
 @router.get("/model_info", operation_id="docusign_model_info")
