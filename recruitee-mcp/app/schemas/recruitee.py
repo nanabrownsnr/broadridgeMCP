@@ -24,6 +24,12 @@ class GetJobPublicUrlRequest(BaseModel):
     offer_id: int = Field(...)
 
 
+class ListOfferStagesRequest(BaseModel):
+    """List all workflow stages for a specific role/offer."""
+
+    offer_id: int = Field(..., description="Offer ID returned by recruitee_list_job_openings or recruitee_create_job")
+
+
 class ListCandidatesRequest(BaseModel):
     """List candidates globally or scoped to an offer/stage."""
 

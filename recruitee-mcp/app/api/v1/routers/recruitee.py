@@ -6,6 +6,7 @@ from app.core.platfom_integration_client import PlatformIntegrationClient, get_p
 from app.schemas.recruitee import (
     CreateJobRequest,
     GetJobPublicUrlRequest,
+    ListOfferStagesRequest,
     ListCandidatesRequest,
     MoveCandidateStageRequest,
     PublishJobRequest,
@@ -70,6 +71,10 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     Optional input:
     - `description`, `pipeline_template_id`, `department`, `location`, `status`
 
+    Output:
+    - `{ "offer": { ... } }`
+    - Use `offer.id` as `offer_id` in other tools.
+
     Auth resolution order:
     1. Platform Integration key for service `RECRUITEE_KEY_SERVICE_NAME`
     2. `RECRUITEE_API_KEY` from env fallback
@@ -94,6 +99,42 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     return {"offer": data}
 
 
+@router.get("/list_job_openings", operation_id="recruitee_list_job_openings")
+async def list_job_openings(platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
+    """
+    Return all job openings with a compact list for tool chaining.
+
+    Use this as the first discovery step when the user asks:
+    - "show all roles"
+    - "how many openings do we have"
+    - "find offer id for role X"
+
+    Output:
+    - `total_count`: number of offers
+    - `openings`: list of `{ offer_id, title, status, slug, published_at }`
+    - `raw`: full provider payload for advanced logic
+    """
+    key = _resolve_api_key(platform_client)
+    company_id = _company_id()
+    data = await _api_request("GET", f"/c/{company_id}/offers", key, params={"limit": 1000, "page": 1})
+    offers = data.get("offers", [])
+    openings = [
+        {
+            "offer_id": offer.get("id"),
+            "title": offer.get("title"),
+            "status": offer.get("status"),
+            "slug": offer.get("slug"),
+            "published_at": offer.get("published_at"),
+        }
+        for offer in offers
+    ]
+    return {
+        "total_count": data.get("meta", {}).get("total_count", len(openings)),
+        "openings": openings,
+        "raw": data,
+    }
+
+
 @router.post("/publish_job", operation_id="recruitee_publish_job")
 async def publish_job(payload: PublishJobRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
@@ -101,6 +142,9 @@ async def publish_job(payload: PublishJobRequest, platform_client: PlatformInteg
 
     Required input:
     - `offer_id` returned from `recruitee_create_job`
+
+    Output:
+    - `{ "offer": { ... } }` with updated status.
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -124,6 +168,7 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
     Output:
     - `best_url` (primary URL to post)
     - `url_candidates` (alternatives if multiple URL fields exist)
+    - `raw_offer` (full offer object)
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -151,6 +196,43 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
     }
 
 
+@router.post("/list_offer_stages", operation_id="recruitee_list_offer_stages")
+async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
+    """
+    Return pipeline stages for a specific offer, so agents can use stage names instead of guessing stage IDs.
+
+    Required input:
+    - `offer_id`
+
+    Output:
+    - `stages`: list of `{ stage_id, stage_name, position, kind }`
+    - `offer_id`
+    - `raw`: full provider payload
+
+    Recommended flow:
+    1. call `recruitee_list_job_openings` to get `offer_id`
+    2. call this tool to map stage names -> stage IDs
+    3. call `recruitee_move_candidate_stage` with the selected `stage_id`
+    """
+    key = _resolve_api_key(platform_client)
+    company_id = _company_id()
+    data = await _api_request("GET", f"/c/{company_id}/offers/{payload.offer_id}/stages", key)
+
+    # Recruitee responses can vary by plan/version; normalize common shapes.
+    stage_items = data.get("stages", data if isinstance(data, list) else [])
+    stages = []
+    for item in stage_items:
+        stages.append(
+            {
+                "stage_id": item.get("id"),
+                "stage_name": item.get("name") or item.get("title"),
+                "position": item.get("position"),
+                "kind": item.get("kind") or item.get("type"),
+            }
+        )
+    return {"offer_id": payload.offer_id, "stages": stages, "raw": data}
+
+
 @router.post("/list_candidates", operation_id="recruitee_list_candidates")
 async def list_candidates(payload: ListCandidatesRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
@@ -165,6 +247,9 @@ async def list_candidates(payload: ListCandidatesRequest, platform_client: Platf
     Typical usage:
     - "how many applied to role X"
     - "show candidates in Offer Accepted stage"
+
+    Output:
+    - `{ "candidates": { "meta": { ... }, "candidates": [ ... ] } }`
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -188,6 +273,9 @@ async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_clie
     - `candidate_id`
     - `offer_id`
     - `stage_id`
+
+    Output:
+    - `{ "result": { ... } }`
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -214,6 +302,9 @@ async def register_webhook(payload: RegisterWebhookRequest, platform_client: Pla
     Required input:
     - `target_url`: HTTPS callback endpoint you control
     - `event_type`: Recruitee event name (for example `candidate_moved`)
+
+    Output:
+    - `{ "webhook": { ... } }`
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
