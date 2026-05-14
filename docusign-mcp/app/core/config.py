@@ -38,7 +38,12 @@ class Settings(BaseSettings):
 
     DOCUSIGN_BASE_URL: str = "https://demo.docusign.net/restapi"
     DOCUSIGN_ACCOUNT_ID: str = ""
+    DOCUSIGN_AUTH_MODE: str = "token"
     DOCUSIGN_ACCESS_TOKEN: str = ""
+    DOCUSIGN_INTEGRATION_KEY: str = ""
+    DOCUSIGN_USER_ID: str = ""
+    DOCUSIGN_PRIVATE_KEY_PATH: str = ""
+    DOCUSIGN_JWT_SCOPES: str = "signature impersonation"
     DOCUSIGN_KEY_SERVICE_NAME: str = "DocuSign"
     DOCUSIGN_STORE_PATH: str = "/workspace/docusign_envelope_store.json"
 

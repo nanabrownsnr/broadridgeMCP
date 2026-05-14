@@ -1,9 +1,11 @@
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
+from jose import jwt
 from app.core.config import settings
 from app.core.platform_integration_client import PlatformIntegrationClient, get_platform_client
 from app.schemas.docusign import (
@@ -19,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter(prefix="/docusign", tags=["docusign"])
 STORE_PATH = Path(settings.DOCUSIGN_STORE_PATH)
 STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+_JWT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": 0}
 
 
 def _load_store() -> dict[str, Any]:
@@ -31,7 +34,74 @@ def _save_store(payload: dict[str, Any]) -> None:
     STORE_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
-def _resolve_bearer_token(platform_client: PlatformIntegrationClient | None = None) -> str:
+def _docusign_oauth_base() -> str:
+    base = settings.DOCUSIGN_BASE_URL.lower()
+    return "https://account-d.docusign.com" if "demo.docusign.net" in base else "https://account.docusign.com"
+
+
+async def _mint_jwt_access_token() -> str:
+    if not settings.DOCUSIGN_INTEGRATION_KEY or not settings.DOCUSIGN_USER_ID or not settings.DOCUSIGN_PRIVATE_KEY_PATH:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "JWT mode requires DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, "
+                "and DOCUSIGN_PRIVATE_KEY_PATH."
+            ),
+        )
+
+    now = int(time.time())
+    cached = _JWT_TOKEN_CACHE.get("access_token")
+    expires_at = int(_JWT_TOKEN_CACHE.get("expires_at", 0))
+    if cached and expires_at - now > 120:
+        return str(cached)
+
+    private_key = Path(settings.DOCUSIGN_PRIVATE_KEY_PATH)
+    if not private_key.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"DocuSign private key file not found at {settings.DOCUSIGN_PRIVATE_KEY_PATH}",
+        )
+
+    aud = _docusign_oauth_base()
+    payload = {
+        "iss": settings.DOCUSIGN_INTEGRATION_KEY,
+        "sub": settings.DOCUSIGN_USER_ID,
+        "aud": aud,
+        "iat": now,
+        "exp": now + 3600,
+        "scope": settings.DOCUSIGN_JWT_SCOPES,
+    }
+    assertion = jwt.encode(payload, private_key.read_text(encoding="utf-8"), algorithm="RS256")
+
+    token_url = f"{aud}/oauth/token"
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            token_url,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": assertion,
+            },
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text[:2000])
+
+    data = response.json()
+    access_token = data.get("access_token")
+    expires_in = int(data.get("expires_in", 3600))
+    if not access_token:
+        raise HTTPException(status_code=500, detail="DocuSign JWT token response missing access_token.")
+
+    _JWT_TOKEN_CACHE["access_token"] = access_token
+    _JWT_TOKEN_CACHE["expires_at"] = now + expires_in
+    return str(access_token)
+
+
+async def _resolve_bearer_token(platform_client: PlatformIntegrationClient | None = None) -> str:
+    if settings.DOCUSIGN_AUTH_MODE.strip().lower() == "jwt":
+        return await _mint_jwt_access_token()
+
     if platform_client is not None:
         try:
             token = platform_client.get_access_key(settings.DOCUSIGN_KEY_SERVICE_NAME)
@@ -39,12 +109,14 @@ def _resolve_bearer_token(platform_client: PlatformIntegrationClient | None = No
                 return token
         except Exception:
             pass
+
     if settings.DOCUSIGN_ACCESS_TOKEN:
         return settings.DOCUSIGN_ACCESS_TOKEN
+
     raise HTTPException(
         status_code=500,
         detail=(
-            "DocuSign access token not configured. Provide via Platform Integration "
+            "DocuSign token mode missing credentials. Provide via Platform Integration "
             f"service='{settings.DOCUSIGN_KEY_SERVICE_NAME}' or DOCUSIGN_ACCESS_TOKEN env."
         ),
     )
@@ -54,8 +126,6 @@ def _base_rest_url() -> str:
     if not settings.DOCUSIGN_BASE_URL or not settings.DOCUSIGN_ACCOUNT_ID:
         raise HTTPException(status_code=500, detail="DOCUSIGN_BASE_URL and DOCUSIGN_ACCOUNT_ID are required")
     base = settings.DOCUSIGN_BASE_URL.rstrip("/")
-    # Accept either host-only base (e.g. https://demo.docusign.net) or rest API base
-    # (e.g. https://demo.docusign.net/restapi).
     if not base.lower().endswith("/restapi"):
         base = f"{base}/restapi"
     return f"{base}/v2.1/accounts/{settings.DOCUSIGN_ACCOUNT_ID}"
@@ -92,12 +162,7 @@ async def send_envelope_from_template(
     payload: SendEnvelopeFromTemplateRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """
-    Send an envelope from an existing DocuSign template.
-
-    Use this for production flows where templates are managed in DocuSign UI and only template IDs are passed here.
-    """
-    token = _resolve_bearer_token(platform_client)
+    token = await _resolve_bearer_token(platform_client)
     text_custom_fields = [{"name": "candidate_id", "value": payload.candidate_id, "show": "false"}]
     if payload.client_id:
         text_custom_fields.append({"name": "client_id", "value": payload.client_id, "show": "false"})
@@ -138,8 +203,7 @@ async def get_envelope_status(
     payload: EnvelopeStatusRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """Get current envelope status by envelope id."""
-    token = _resolve_bearer_token(platform_client)
+    token = await _resolve_bearer_token(platform_client)
     data = await _api_request("GET", f"/envelopes/{payload.envelope_id}", token)
     return {
         "envelope_id": payload.envelope_id,
@@ -155,14 +219,11 @@ async def list_candidate_envelopes(
     payload: ListCandidateEnvelopesRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """
-    List envelopes previously sent for a candidate/client identifier.
-    """
     store = _load_store()
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
     results: list[dict[str, Any]] = []
 
-    token = _resolve_bearer_token(platform_client) if payload.include_status_lookup else None
+    token = await _resolve_bearer_token(platform_client) if payload.include_status_lookup else None
     for envelope_id in envelope_ids:
         item = {"envelope_id": envelope_id, **store.get("envelopes", {}).get(envelope_id, {})}
         if payload.include_status_lookup and token:
@@ -181,14 +242,9 @@ async def get_completed_documents(
     payload: CompletedDocumentsRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """
-    Return completed envelope document references by candidate/client.
-
-    Response returns DocuSign API document endpoints (`document_download_path`) for each completed envelope doc.
-    """
     store = _load_store()
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
-    token = _resolve_bearer_token(platform_client)
+    token = await _resolve_bearer_token(platform_client)
     docs: list[dict[str, Any]] = []
 
     for envelope_id in envelope_ids:
@@ -221,10 +277,7 @@ async def list_templates(
     payload: ListTemplatesRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """
-    List available DocuSign templates so agents can discover valid template IDs before sending.
-    """
-    token = _resolve_bearer_token(platform_client)
+    token = await _resolve_bearer_token(platform_client)
     qs: list[str] = [f"count={payload.count}"]
     if payload.search_text:
         qs.append(f"search_text={payload.search_text}")
@@ -255,10 +308,7 @@ async def get_template_details(
     payload: TemplateDetailsRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """
-    Get detailed metadata for a single DocuSign template, including recipients/documents when requested.
-    """
-    token = _resolve_bearer_token(platform_client)
+    token = await _resolve_bearer_token(platform_client)
     include_parts: list[str] = []
     if payload.include_documents:
         include_parts.append("documents")
@@ -286,14 +336,15 @@ async def get_template_details(
 
 @router.get("/model_info", operation_id="docusign_model_info")
 async def model_info() -> dict:
-    """Return DocuSign MCP auth and storage config behavior."""
     return {
         "service": "docusign_mcp",
         "api_base": settings.DOCUSIGN_BASE_URL,
         "requires": ["DOCUSIGN_BASE_URL", "DOCUSIGN_ACCOUNT_ID"],
+        "auth_mode": settings.DOCUSIGN_AUTH_MODE,
         "auth_resolution_order": [
+            "DOCUSIGN_AUTH_MODE=jwt -> auto-minted JWT access token",
             f"PlatformIntegration(service='{settings.DOCUSIGN_KEY_SERVICE_NAME}')",
-            "DOCUSIGN_ACCESS_TOKEN env fallback",
+            "DOCUSIGN_ACCESS_TOKEN env fallback (token mode)",
         ],
         "store_path": settings.DOCUSIGN_STORE_PATH,
     }
