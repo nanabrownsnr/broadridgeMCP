@@ -123,6 +123,13 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     - Legacy fallback: `description`
     - Routing: `pipeline_template_id`, `department`, `location`, `status`
 
+    Agent behavior guidance:
+    - The agent should try to infer structured fields from the user's natural-language request first.
+    - If the user provides a JD document/text, parse it and map content into the structured fields.
+    - If required role context is still unclear, ask concise follow-up questions for missing high-value fields
+      (especially `role_summary`, `responsibilities`, and `must_have_requirements`).
+    - Do not block on perfect completeness; proceed with best available details and keep remaining fields optional.
+
     Output:
     - `{ "offer": { ... } }`
     - Use `offer.id` as `offer_id` in other tools.
