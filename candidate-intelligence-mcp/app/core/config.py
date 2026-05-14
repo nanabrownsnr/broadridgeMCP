@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     CANDIDATE_INTELLIGENCE_API_URL: str = "http://localhost:8015"
     MAX_RESUME_BYTES: int = 10_485_760
     HTTP_TIMEOUT_SECONDS: int = 60
+    ANALYSIS_STORE_DIR: str = "/workspace/candidate_analysis_store"
 
     CLIENT_ID: str = ""
     CLIENT_SECRET: str = ""

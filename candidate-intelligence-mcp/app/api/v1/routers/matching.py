@@ -1,11 +1,14 @@
 import io
+import json
 import re
+from datetime import datetime, timezone
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import httpx
 from app.core.config import settings
-from app.schemas.matching import BatchMatchResumesToRoleRequest, MatchResumeToRoleRequest
+from app.schemas.matching import BatchMatchResumesToRoleRequest, GetCandidateAnalysisRequest, MatchResumeToRoleRequest
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, HTTPException
 
@@ -27,6 +30,8 @@ except Exception:
 router = APIRouter(prefix="/candidate_intelligence", tags=["candidate_intelligence"])
 
 _OCR_ENGINE = RapidOCR() if RapidOCR is not None else None
+_STORE_DIR = Path(settings.ANALYSIS_STORE_DIR)
+_STORE_DIR.mkdir(parents=True, exist_ok=True)
 _STOPWORDS = {
     "a",
     "an",
@@ -169,6 +174,42 @@ def _build_graph_score(role_text: str, resume_text: str) -> dict[str, Any]:
     }
 
 
+def _analysis_path(candidate_id: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", candidate_id.strip())
+    return _STORE_DIR / f"{safe}.json"
+
+
+def _store_analysis(candidate_id: str, payload: dict[str, Any]) -> None:
+    record = {
+        "candidate_id": candidate_id,
+        "stored_at": datetime.now(timezone.utc).isoformat(),
+        "payload": payload,
+    }
+    _analysis_path(candidate_id).write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+
+def _load_analysis(candidate_id: str) -> dict[str, Any] | None:
+    path = _analysis_path(candidate_id)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _compact_analysis(candidate_id: str, analysis: dict[str, Any]) -> dict[str, Any]:
+    strengths = analysis.get("strengths", [])
+    missing = analysis.get("missing_requirements", [])
+    return {
+        "candidate_id": candidate_id,
+        "score_overall": analysis.get("score_overall"),
+        "must_have_score": analysis.get("must_have_score"),
+        "nice_to_have_score": analysis.get("nice_to_have_score"),
+        "reason_summary": analysis.get("reason_summary"),
+        "top_strengths": [s.get("requirement_text") for s in strengths[:3] if s.get("requirement_text")],
+        "top_gaps": missing[:3],
+        "analysis_ref": candidate_id,
+    }
+
+
 async def _fetch_url_content(url: str) -> tuple[bytes, str]:
     try:
         async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
@@ -256,15 +297,19 @@ async def match_resume_to_role(payload: MatchResumeToRoleRequest) -> dict:
       - `resume_text`
       - `resume_url` (pdf/image/text/html)
 
-    Output:
-    - `score_overall` (0-100)
-    - `must_have_score`, `nice_to_have_score`
-    - `requirement_scores` with per-requirement evidence
-    - `missing_requirements`, `strengths`, `reason_summary`, `evidence`
+    Output (compact):
+    - `candidate_id`, `score_overall`, `must_have_score`, `nice_to_have_score`
+    - `reason_summary`, `top_strengths`, `top_gaps`
+    - `analysis_ref` for full retrieval via `get_candidate_full_analysis`
     """
     resume, meta = await _resolve_resume_text(payload.resume_text, payload.resume_url)
     analysis = _build_graph_score(payload.role_requirements_text, resume)
-    return {"resume_source": meta, "analysis": analysis}
+    candidate_id = payload.candidate_id or f"single_{int(datetime.now(timezone.utc).timestamp())}"
+    _store_analysis(
+        candidate_id,
+        {"resume_source": meta, "analysis": analysis, "role_requirements_text": payload.role_requirements_text},
+    )
+    return {"resume_source": meta, "summary": _compact_analysis(candidate_id, analysis)}
 
 
 @router.post("/batch_match_resumes_to_role", operation_id="batch_match_resumes_to_role")
@@ -276,27 +321,48 @@ async def batch_match_resumes_to_role(payload: BatchMatchResumesToRoleRequest) -
     - `role_requirements_text`
     - `resumes`: array of `{ candidate_id, resume_text | resume_url }`
 
-    Output:
-    - `results`: ranked descending by `score_overall`
+    Output (compact):
+    - `results`: ranked descending compact summaries
     - `top_candidates_summary`: short summary for the top 3 candidates
+    - full details can be retrieved by `analysis_ref` using `get_candidate_full_analysis`
     """
     if not payload.resumes:
         raise HTTPException(status_code=400, detail="resumes must not be empty")
 
-    results: list[dict[str, Any]] = []
+    full_results: list[dict[str, Any]] = []
     for item in payload.resumes:
         resume, meta = await _resolve_resume_text(item.resume_text, item.resume_url)
         analysis = _build_graph_score(payload.role_requirements_text, resume)
-        results.append({"candidate_id": item.candidate_id, "resume_source": meta, "analysis": analysis})
+        _store_analysis(
+            item.candidate_id,
+            {"resume_source": meta, "analysis": analysis, "role_requirements_text": payload.role_requirements_text},
+        )
+        full_results.append({"candidate_id": item.candidate_id, "resume_source": meta, "analysis": analysis})
 
-    ranked = sorted(results, key=lambda x: x["analysis"]["score_overall"], reverse=True)
+    ranked_full = sorted(full_results, key=lambda x: x["analysis"]["score_overall"], reverse=True)
+    ranked = [_compact_analysis(x["candidate_id"], x["analysis"]) for x in ranked_full]
     top = ranked[:3]
     summary = [
         {
             "candidate_id": x["candidate_id"],
-            "score_overall": x["analysis"]["score_overall"],
-            "reason_summary": x["analysis"]["reason_summary"],
+            "score_overall": x["score_overall"],
+            "reason_summary": x["reason_summary"],
         }
         for x in top
     ]
     return {"count": len(ranked), "results": ranked, "top_candidates_summary": summary}
+
+
+@router.post("/get_candidate_full_analysis", operation_id="get_candidate_full_analysis")
+async def get_candidate_full_analysis(payload: GetCandidateAnalysisRequest) -> dict:
+    """
+    Retrieve previously stored full analysis by `candidate_id`.
+
+    Use when:
+    1. Compact match results indicate a promising candidate.
+    2. You need full requirement-level evidence, graph details, and parsed source metadata.
+    """
+    record = _load_analysis(payload.candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No stored analysis found for candidate_id={payload.candidate_id}")
+    return record

@@ -24,6 +24,7 @@ class MatchResumeToRoleRequest(BaseModel):
     """
 
     role_requirements_text: str = Field(..., description="Complete role requirements text or JD excerpt.")
+    candidate_id: str | None = Field(default=None, description="Optional candidate identifier for persistence/retrieval.")
     resume_text: str | None = Field(default=None, description="Plain text resume content.")
     resume_url: str | None = Field(default=None, description="Public URL to resume document.")
 
@@ -41,3 +42,9 @@ class BatchMatchResumesToRoleRequest(BaseModel):
 
     role_requirements_text: str = Field(..., description="Complete role requirements text or JD excerpt.")
     resumes: list[ResumeInput] = Field(..., description="Candidate list to evaluate against the same role.")
+
+
+class GetCandidateAnalysisRequest(BaseModel):
+    """Retrieve stored full analysis by candidate id."""
+
+    candidate_id: str = Field(..., description="Candidate identifier used during match/batch call.")

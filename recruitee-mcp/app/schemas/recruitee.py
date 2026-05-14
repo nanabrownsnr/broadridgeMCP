@@ -46,12 +46,14 @@ class GetJobPublicUrlRequest(BaseModel):
     """Resolve a job's public URL."""
 
     offer_id: int = Field(...)
+    include_raw_offer: bool = Field(default=False, description="Include full raw offer payload when true.")
 
 
 class ListOfferStagesRequest(BaseModel):
     """List all workflow stages for a specific role/offer."""
 
     offer_id: int = Field(..., description="Offer ID returned by recruitee_list_job_openings or recruitee_create_job")
+    include_raw: bool = Field(default=False, description="Include full raw stages payload when true.")
 
 
 class ListCandidatesRequest(BaseModel):
@@ -61,6 +63,7 @@ class ListCandidatesRequest(BaseModel):
     stage_id: int | None = Field(default=None)
     limit: int = Field(default=50, ge=1, le=200)
     page: int = Field(default=1, ge=1)
+    include_raw: bool = Field(default=False, description="Include full provider payload when true.")
 
 
 class GetCandidateResumeSourceRequest(BaseModel):

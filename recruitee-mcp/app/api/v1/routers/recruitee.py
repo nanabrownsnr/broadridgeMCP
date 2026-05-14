@@ -181,7 +181,10 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
 
 
 @router.get("/list_job_openings", operation_id="recruitee_list_job_openings")
-async def list_job_openings(platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
+async def list_job_openings(
+    include_raw: bool = False,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
     """
     Return all job openings with a compact list for tool chaining.
 
@@ -193,7 +196,7 @@ async def list_job_openings(platform_client: PlatformIntegrationClient = Depends
     Output:
     - `total_count`: number of offers
     - `openings`: list of `{ offer_id, title, status, slug, published_at }`
-    - `raw`: full provider payload for advanced logic
+    - `raw`: full provider payload when `include_raw=true`
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -209,11 +212,13 @@ async def list_job_openings(platform_client: PlatformIntegrationClient = Depends
         }
         for offer in offers
     ]
-    return {
+    result = {
         "total_count": data.get("meta", {}).get("total_count", len(openings)),
         "openings": openings,
-        "raw": data,
     }
+    if include_raw:
+        result["raw"] = data
+    return result
 
 
 @router.post("/publish_job", operation_id="recruitee_publish_job")
@@ -273,7 +278,7 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
         "slug": slug,
         "url_candidates": url_candidates,
         "best_url": url_candidates[0] if url_candidates else None,
-        "raw_offer": data,
+        **({"raw_offer": data} if payload.include_raw_offer else {}),
     }
 
 
@@ -288,7 +293,7 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
     Output:
     - `stages`: list of `{ stage_id, stage_name, position, kind }`
     - `offer_id`
-    - `raw`: full provider payload
+    - `raw`: full provider payload when `include_raw=true`
 
     Recommended flow:
     1. call `recruitee_list_job_openings` to get `offer_id`
@@ -311,7 +316,10 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
                 "kind": item.get("kind") or item.get("type"),
             }
         )
-    return {"offer_id": payload.offer_id, "stages": stages, "raw": data}
+    result: dict[str, Any] = {"offer_id": payload.offer_id, "stages": stages}
+    if payload.include_raw:
+        result["raw"] = data
+    return result
 
 
 @router.post("/list_candidates", operation_id="recruitee_list_candidates")
@@ -333,7 +341,8 @@ async def list_candidates(
     - "show candidates in Offer Accepted stage"
 
     Output:
-    - `{ "candidates": { "meta": { ... }, "candidates": [ ... ] } }`
+    - Compact default: `{ "count", "candidates": [ {candidate_id, name, emails, placements} ] }`
+    - Raw payload only when `include_raw=true`
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
@@ -346,7 +355,28 @@ async def list_candidates(
         params["stage_id"] = payload.stage_id
 
     data = await _api_request("GET", f"/c/{company_id}/candidates", key, params=params)
-    return {"candidates": data}
+    candidate_rows = data.get("candidates", [])
+    compact = []
+    for c in candidate_rows:
+        compact.append(
+            {
+                "candidate_id": c.get("id"),
+                "name": c.get("name"),
+                "emails": c.get("emails", []),
+                "placements": [
+                    {
+                        "offer_id": p.get("offer_id"),
+                        "stage_id": p.get("stage_id"),
+                        "talent_pool_id": p.get("talent_pool_id"),
+                    }
+                    for p in c.get("placements", [])
+                ],
+            }
+        )
+    result: dict[str, Any] = {"count": len(compact), "candidates": compact}
+    if payload.include_raw:
+        result["raw"] = data
+    return result
 
 
 @router.post("/get_candidate_resume_source", operation_id="recruitee_get_candidate_resume_source")
