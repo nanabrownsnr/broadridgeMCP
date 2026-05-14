@@ -59,12 +59,3 @@ services:
       - ./docusign-mcp/.env
     ports:
       - "8016:8000"
-
-  wonder-mcp:
-    restart: unless-stopped
-    build:
-      context: ./wonder-mcp
-    env_file:
-      - ./wonder-mcp/.env
-    ports:
-      - "8017:8000"
