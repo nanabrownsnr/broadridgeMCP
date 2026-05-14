@@ -127,6 +127,21 @@ def _build_structured_description(payload: CreateJobRequest) -> str | None:
     return None
 
 
+def _build_requirements_html(payload: CreateJobRequest) -> str | None:
+    must = [x.strip() for x in (payload.must_have_requirements or []) if x and x.strip()]
+    nice = [x.strip() for x in (payload.nice_to_have_requirements or []) if x and x.strip()]
+    if not must and not nice:
+        return None
+    parts: list[str] = []
+    if must:
+        parts.append("<p><strong>Must-have requirements</strong></p>")
+        parts.append("<ul>" + "".join(f"<li><p>{item}</p></li>" for item in must) + "</ul>")
+    if nice:
+        parts.append("<p><strong>Nice-to-have requirements</strong></p>")
+        parts.append("<ul>" + "".join(f"<li><p>{item}</p></li>" for item in nice) + "</ul>")
+    return "".join(parts)
+
+
 @router.post("/create_job", operation_id="recruitee_create_job")
 async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
@@ -154,6 +169,7 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     Output:
     - `{ "offer": { ... } }`
     - Use `offer.id` as `offer_id` in other tools.
+    - `must_have_requirements` and `nice_to_have_requirements` are rendered into Recruitee `requirements`.
 
     Auth resolution order:
     1. Platform Integration key for service `RECRUITEE_KEY_SERVICE_NAME`
@@ -162,21 +178,24 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
 
-    body: dict[str, Any] = {
+    offer: dict[str, Any] = {
         "title": payload.title,
         "status": payload.status,
     }
     description_text = _build_structured_description(payload)
     if description_text is not None:
-        body["description"] = description_text
+        offer["description"] = description_text
+    requirements_html = _build_requirements_html(payload)
+    if requirements_html is not None:
+        offer["requirements"] = requirements_html
     if payload.pipeline_template_id is not None:
-        body["pipeline_template_id"] = payload.pipeline_template_id
+        offer["pipeline_template_id"] = payload.pipeline_template_id
     if payload.department is not None:
-        body["department"] = payload.department
+        offer["department"] = payload.department
     if payload.location is not None:
-        body["location"] = payload.location
+        offer["location"] = payload.location
 
-    data = await _api_request("POST", f"/c/{company_id}/offers", key, json=body)
+    data = await _api_request("POST", f"/c/{company_id}/offers", key, json={"offer": offer})
     return {"offer": data}
 
 
@@ -238,7 +257,7 @@ async def publish_job(payload: PublishJobRequest, platform_client: PlatformInteg
         "PATCH",
         f"/c/{company_id}/offers/{payload.offer_id}",
         key,
-        json={"status": "published"},
+        json={"offer": {"status": "published"}},
     )
     return {"offer": data}
 
@@ -252,32 +271,35 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
     - `offer_id`
 
     Output:
-    - `best_url` (primary URL to post)
+    - `apply_url` (primary URL to post from `careers_url` when present)
     - `url_candidates` (alternatives if multiple URL fields exist)
     - `raw_offer` (full offer object)
     """
     key = _resolve_api_key(platform_client)
     company_id = _company_id()
     data = await _api_request("GET", f"/c/{company_id}/offers/{payload.offer_id}", key)
+    offer = data.get("offer", data)
 
     # Recruitee APIs can expose URL fields differently; return best available candidates.
     url_candidates = []
-    for field in ["careers_url", "public_url", "url", "hosted_url"]:
-        val = data.get(field)
+    for field in ["careers_url", "url", "public_url", "hosted_url"]:
+        val = offer.get(field)
         if val:
             url_candidates.append(val)
 
-    slug = data.get("slug")
+    slug = offer.get("slug")
     if slug:
         # conventional careers pattern fallback
         url_candidates.append(f"https://{company_id}.recruitee.com/o/{slug}")
 
+    apply_url = offer.get("careers_url") or offer.get("url") or (url_candidates[0] if url_candidates else None)
     return {
         "offer_id": payload.offer_id,
-        "title": data.get("title"),
+        "title": offer.get("title"),
         "slug": slug,
+        "apply_url": apply_url,
         "url_candidates": url_candidates,
-        "best_url": url_candidates[0] if url_candidates else None,
+        "best_url": apply_url,
         **({"raw_offer": data} if payload.include_raw_offer else {}),
     }
 
