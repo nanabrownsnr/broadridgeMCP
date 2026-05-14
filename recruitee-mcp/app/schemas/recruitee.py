@@ -5,7 +5,31 @@ class CreateJobRequest(BaseModel):
     """Create a draft role in Recruitee."""
 
     title: str = Field(..., description="Job title")
-    description: str | None = Field(default=None, description="Optional rich text job description")
+    description: str | None = Field(
+        default=None,
+        description="Optional full description (legacy fallback). If structured fields are supplied, MCP composes this automatically.",
+    )
+    role_summary: str | None = Field(default=None, description="Why this role exists and what it owns.")
+    responsibilities: list[str] | None = Field(
+        default=None,
+        description="Day-to-day responsibilities as bullet items. Recommended 5-10.",
+    )
+    must_have_requirements: list[str] | None = Field(
+        default=None,
+        description="Non-negotiable requirements used later for resume matching.",
+    )
+    nice_to_have_requirements: list[str] | None = Field(
+        default=None,
+        description="Bonus requirements that are preferred but not mandatory.",
+    )
+    seniority: str | None = Field(default=None, description="e.g. Junior, Mid, Senior, Lead")
+    location_type: str | None = Field(default=None, description="e.g. Remote, Hybrid, Onsite")
+    employment_type: str | None = Field(default=None, description="e.g. Full-time, Contract")
+    team_name: str | None = Field(default=None, description="Team or department name shown in the role context.")
+    interview_process: list[str] | None = Field(
+        default=None,
+        description="Ordered interview steps for candidate expectation-setting.",
+    )
     pipeline_template_id: int | None = Field(default=None, description="Optional pipeline template id")
     department: str | None = Field(default=None)
     location: str | None = Field(default=None)

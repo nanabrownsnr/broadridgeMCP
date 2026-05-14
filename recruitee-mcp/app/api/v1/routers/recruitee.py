@@ -57,6 +57,55 @@ async def _api_request(method: str, path: str, api_key: str, json: dict | None =
     return response.json()
 
 
+def _build_structured_description(payload: CreateJobRequest) -> str | None:
+    sections: list[str] = []
+
+    context_lines: list[str] = []
+    if payload.seniority:
+        context_lines.append(f"- Seniority: {payload.seniority}")
+    if payload.employment_type:
+        context_lines.append(f"- Employment type: {payload.employment_type}")
+    if payload.location_type:
+        context_lines.append(f"- Work model: {payload.location_type}")
+    if payload.team_name:
+        context_lines.append(f"- Team: {payload.team_name}")
+    if context_lines:
+        sections.append("Role Context\n" + "\n".join(context_lines))
+
+    if payload.role_summary:
+        sections.append("Role Summary\n" + payload.role_summary.strip())
+
+    if payload.responsibilities:
+        resp = "\n".join([f"- {x.strip()}" for x in payload.responsibilities if x and x.strip()])
+        if resp:
+            sections.append("Responsibilities\n" + resp)
+
+    if payload.must_have_requirements:
+        must = "\n".join([f"- {x.strip()}" for x in payload.must_have_requirements if x and x.strip()])
+        if must:
+            sections.append("Must-Have Requirements\n" + must)
+
+    if payload.nice_to_have_requirements:
+        nice = "\n".join([f"- {x.strip()}" for x in payload.nice_to_have_requirements if x and x.strip()])
+        if nice:
+            sections.append("Nice-to-Have Requirements\n" + nice)
+
+    if payload.interview_process:
+        steps = [
+            f"{idx + 1}. {step.strip()}"
+            for idx, step in enumerate(payload.interview_process)
+            if step and step.strip()
+        ]
+        if steps:
+            sections.append("Interview Process\n" + "\n".join(steps))
+
+    if sections:
+        return "\n\n".join(sections)
+    if payload.description and payload.description.strip():
+        return payload.description.strip()
+    return None
+
+
 @router.post("/create_job", operation_id="recruitee_create_job")
 async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
@@ -69,7 +118,10 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     - `title`
 
     Optional input:
-    - `description`, `pipeline_template_id`, `department`, `location`, `status`
+    - Structured JD fields: `role_summary`, `responsibilities`, `must_have_requirements`, `nice_to_have_requirements`
+    - Role metadata: `seniority`, `location_type`, `employment_type`, `team_name`, `interview_process`
+    - Legacy fallback: `description`
+    - Routing: `pipeline_template_id`, `department`, `location`, `status`
 
     Output:
     - `{ "offer": { ... } }`
@@ -86,8 +138,9 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
         "title": payload.title,
         "status": payload.status,
     }
-    if payload.description is not None:
-        body["description"] = payload.description
+    description_text = _build_structured_description(payload)
+    if description_text is not None:
+        body["description"] = description_text
     if payload.pipeline_template_id is not None:
         body["pipeline_template_id"] = payload.pipeline_template_id
     if payload.department is not None:
