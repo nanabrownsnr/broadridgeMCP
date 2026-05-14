@@ -161,11 +161,12 @@ async def create_job_offer(payload: CreateJobOfferRequest, platform_client: Plat
     - Distribution/form: `offer_tags`, `visibility_options`, `options_cv/options_phone/options_cover_letter/options_photo`
 
     Agent behavior guidance:
-    - The agent should try to infer structured fields from the user's natural-language request first.
+    - Infer structured fields from the user's natural-language request first.
     - If the user provides a JD document/text, parse it and map content into the structured fields.
-    - If required role context is still unclear, ask concise follow-up questions for missing high-value fields
-      (especially `role_summary`, `responsibilities`, and `must_have_requirements`).
-    - Do not block on perfect completeness; proceed with best available details and keep remaining fields optional.
+    - If required or high-impact fields are unclear, ask concise follow-up questions for only those missing items.
+    - For optional fields, explicitly tell the user what you inferred and ask for confirmation before proceeding:
+      "I inferred optional fields X, Y, Z. Should I continue with these values?"
+    - If user confirms, proceed without blocking on any remaining optional fields.
 
     Output:
     - `{ "offer": { ... } }`
