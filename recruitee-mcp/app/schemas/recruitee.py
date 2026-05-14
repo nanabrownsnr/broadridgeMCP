@@ -67,6 +67,10 @@ class GetCandidateResumeSourceRequest(BaseModel):
     """Fetch one candidate profile and return resume source fields for downstream matching."""
 
     candidate_id: int = Field(..., description="Candidate ID from recruitee_list_candidates output.")
+    include_raw_candidate: bool = Field(
+        default=False,
+        description="When true, include full raw candidate payload. Keep false for compact responses.",
+    )
 
 
 class GetCandidatesResumeSourcesRequest(BaseModel):
@@ -75,6 +79,10 @@ class GetCandidatesResumeSourcesRequest(BaseModel):
     candidate_ids: list[int] = Field(
         ...,
         description="Candidate IDs from recruitee_list_candidates output. Recommended max 50 per request.",
+    )
+    include_raw_candidate: bool = Field(
+        default=False,
+        description="When true, include full raw candidate payload per result. Keep false for compact responses.",
     )
 
 

@@ -60,14 +60,15 @@ async def _api_request(method: str, path: str, api_key: str, json: dict | None =
 
 
 def _resume_source_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
-    cv_original_file = candidate.get("cv_original_file")
-    cv_url = candidate.get("cv_url")
-    resume_text = candidate.get("cv") or candidate.get("resume_text")
+    candidate_obj = candidate.get("candidate", candidate)
+    cv_original_file = candidate_obj.get("cv_original_file") or candidate_obj.get("cv_original_url")
+    cv_url = candidate_obj.get("cv_url")
+    resume_text = candidate_obj.get("cv") or candidate_obj.get("resume_text")
     preferred_resume_url = cv_original_file or cv_url
     return {
-        "candidate_id": candidate.get("id"),
-        "candidate_name": candidate.get("name"),
-        "emails": candidate.get("emails", []),
+        "candidate_id": candidate_obj.get("id"),
+        "candidate_name": candidate_obj.get("name"),
+        "emails": candidate_obj.get("emails", []),
         "cv_original_file": cv_original_file,
         "cv_url": cv_url,
         "resume_url": preferred_resume_url,
@@ -359,12 +360,12 @@ async def get_candidate_resume_source(
     Required input:
     - `candidate_id` from `recruitee_list_candidates`
 
-    Output:
+    Output (compact by default):
     - `resume_source` with:
       - `resume_url` (preferred CV URL if available)
       - `resume_text` (if present in provider response)
       - `cv_original_file`, `cv_url`, `has_resume_url`, `has_resume_text`
-    - `raw_candidate`: full candidate payload
+    - `raw_candidate` only when `include_raw_candidate=true`
 
     Cross-MCP usage:
     1. call `recruitee_get_candidate_resume_source`
@@ -375,7 +376,10 @@ async def get_candidate_resume_source(
     company_id = _company_id()
     candidate = await _api_request("GET", f"/c/{company_id}/candidates/{payload.candidate_id}", key)
     resume_source = _resume_source_from_candidate(candidate)
-    return {"resume_source": resume_source, "raw_candidate": candidate}
+    result: dict[str, Any] = {"resume_source": resume_source}
+    if payload.include_raw_candidate:
+        result["raw_candidate"] = candidate
+    return result
 
 
 @router.post("/get_candidates_resume_sources", operation_id="recruitee_get_candidates_resume_sources")
@@ -389,8 +393,9 @@ async def get_candidates_resume_sources(
     Required input:
     - `candidate_ids`: list of candidate IDs from `recruitee_list_candidates`
 
-    Output:
+    Output (compact by default):
     - `results`: list of `{ candidate_id, resume_source, error? }`
+    - each result includes `raw_candidate` only when `include_raw_candidate=true`
     - `count`
 
     Cross-MCP usage:
@@ -406,7 +411,10 @@ async def get_candidates_resume_sources(
     for candidate_id in candidate_ids:
         try:
             candidate = await _api_request("GET", f"/c/{company_id}/candidates/{candidate_id}", key)
-            results.append({"candidate_id": candidate_id, "resume_source": _resume_source_from_candidate(candidate)})
+            item = {"candidate_id": candidate_id, "resume_source": _resume_source_from_candidate(candidate)}
+            if payload.include_raw_candidate:
+                item["raw_candidate"] = candidate
+            results.append(item)
         except Exception as ex:
             results.append({"candidate_id": candidate_id, "error": str(ex)})
     return {"count": len(results), "results": results}
