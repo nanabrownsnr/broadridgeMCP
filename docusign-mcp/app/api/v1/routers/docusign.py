@@ -11,7 +11,6 @@ from app.schemas.docusign import (
     EnvelopeStatusRequest,
     ListCandidateEnvelopesRequest,
     ListTemplatesRequest,
-    SendEnvelopeRequest,
     SendEnvelopeFromTemplateRequest,
     TemplateDetailsRequest,
 )
@@ -81,65 +80,6 @@ def _index_envelope(candidate_id: str, envelope_id: str, recipient_email: str, c
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _save_store(store)
-
-
-@router.post("/send_envelope_for_signature", operation_id="docusign_send_envelope_for_signature")
-async def send_envelope_for_signature(
-    payload: SendEnvelopeRequest,
-    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
-) -> dict:
-    """
-    Send an envelope for signature and tag it with `candidate_id` so retrieval by client/candidate is reliable.
-    """
-    token = _resolve_bearer_token(platform_client)
-    text_custom_fields = [{"name": "candidate_id", "value": payload.candidate_id, "show": "false"}]
-    if payload.client_id:
-        text_custom_fields.append({"name": "client_id", "value": payload.client_id, "show": "false"})
-
-    envelope_definition: dict[str, Any] = {
-        "emailSubject": payload.subject,
-        "status": "sent",
-        "customFields": {"textCustomFields": text_custom_fields},
-    }
-    if payload.message:
-        envelope_definition["emailBlurb"] = payload.message
-
-    if payload.template_id:
-        envelope_definition["templateId"] = payload.template_id
-        envelope_definition["templateRoles"] = [
-            {"email": payload.recipient.email, "name": payload.recipient.name, "roleName": "signer"}
-        ]
-    else:
-        envelope_definition["documents"] = [
-            {
-                "documentBase64": payload.document_base64,
-                "name": payload.document_name,
-                "fileExtension": payload.file_extension,
-                "documentId": "1",
-            }
-        ]
-        envelope_definition["recipients"] = {
-            "signers": [
-                {
-                    "email": payload.recipient.email,
-                    "name": payload.recipient.name,
-                    "recipientId": "1",
-                    "routingOrder": "1",
-                }
-            ]
-        }
-
-    data = await _api_request("POST", "/envelopes", token, envelope_definition)
-    envelope_id = data.get("envelopeId")
-    if not envelope_id:
-        raise HTTPException(status_code=500, detail="DocuSign response missing envelopeId")
-    _index_envelope(payload.candidate_id, envelope_id, payload.recipient.email, payload.client_id)
-    return {
-        "candidate_id": payload.candidate_id,
-        "envelope_id": envelope_id,
-        "status": data.get("status"),
-        "uri": data.get("uri"),
-    }
 
 
 @router.post("/send_envelope_from_template", operation_id="docusign_send_envelope_from_template")
