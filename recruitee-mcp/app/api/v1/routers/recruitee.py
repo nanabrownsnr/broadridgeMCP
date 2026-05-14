@@ -412,6 +412,55 @@ async def get_candidates_resume_sources(
     return {"count": len(results), "results": results}
 
 
+@router.post("/build_batch_matching_input", operation_id="recruitee_build_batch_matching_input")
+async def build_batch_matching_input(
+    payload: GetCandidatesResumeSourcesRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Build a ready-to-use payload fragment for Candidate Intelligence MCP batch matching.
+
+    Required input:
+    - `candidate_ids`: list of candidate IDs from `recruitee_list_candidates`
+
+    Output:
+    - `resumes`: array formatted exactly for
+      Candidate Intelligence `batch_match_resumes_to_role.resumes[]`
+      with each item as:
+      - `{ "candidate_id": "...", "resume_text": "..." }` when text is available
+      - `{ "candidate_id": "...", "resume_url": "..." }` otherwise
+    - `skipped`: candidates with no usable resume source
+    - `count`
+
+    Usage:
+    1. call this tool
+    2. call Candidate Intelligence `batch_match_resumes_to_role` with:
+       - your `role_requirements_text`
+       - returned `resumes` array
+    """
+    key = _resolve_api_key(platform_client)
+    company_id = _company_id()
+    candidate_ids = payload.candidate_ids[:50]
+
+    resumes: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+
+    for candidate_id in candidate_ids:
+        try:
+            candidate = await _api_request("GET", f"/c/{company_id}/candidates/{candidate_id}", key)
+            source = _resume_source_from_candidate(candidate)
+            if source.get("resume_text"):
+                resumes.append({"candidate_id": str(candidate_id), "resume_text": source["resume_text"]})
+            elif source.get("resume_url"):
+                resumes.append({"candidate_id": str(candidate_id), "resume_url": source["resume_url"]})
+            else:
+                skipped.append({"candidate_id": candidate_id, "reason": "No resume_text or resume_url in candidate profile"})
+        except Exception as ex:
+            skipped.append({"candidate_id": candidate_id, "reason": str(ex)})
+
+    return {"count": len(resumes), "resumes": resumes, "skipped": skipped}
+
+
 @router.post("/move_candidate_stage", operation_id="recruitee_move_candidate_stage")
 async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
