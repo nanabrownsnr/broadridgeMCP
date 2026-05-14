@@ -50,3 +50,12 @@ services:
       - ./candidate-intelligence-mcp/.env
     ports:
       - "8015:8000"
+
+  docusign-mcp:
+    restart: unless-stopped
+    build:
+      context: ./docusign-mcp
+    env_file:
+      - ./docusign-mcp/.env
+    ports:
+      - "8016:8000"
