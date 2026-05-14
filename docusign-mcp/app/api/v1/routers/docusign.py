@@ -53,7 +53,12 @@ def _resolve_bearer_token(platform_client: PlatformIntegrationClient | None = No
 def _base_rest_url() -> str:
     if not settings.DOCUSIGN_BASE_URL or not settings.DOCUSIGN_ACCOUNT_ID:
         raise HTTPException(status_code=500, detail="DOCUSIGN_BASE_URL and DOCUSIGN_ACCOUNT_ID are required")
-    return f"{settings.DOCUSIGN_BASE_URL.rstrip('/')}/v2.1/accounts/{settings.DOCUSIGN_ACCOUNT_ID}"
+    base = settings.DOCUSIGN_BASE_URL.rstrip("/")
+    # Accept either host-only base (e.g. https://demo.docusign.net) or rest API base
+    # (e.g. https://demo.docusign.net/restapi).
+    if not base.lower().endswith("/restapi"):
+        base = f"{base}/restapi"
+    return f"{base}/v2.1/accounts/{settings.DOCUSIGN_ACCOUNT_ID}"
 
 
 async def _api_request(method: str, path: str, token: str, json_body: dict | None = None) -> dict:
