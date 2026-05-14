@@ -1,5 +1,6 @@
 services:
   filesystem-mcp:
+    restart: unless-stopped
     build:
       context: ./filesystem-mcp
     env_file:
@@ -13,6 +14,7 @@ services:
       - WORKSPACE_ROOT=/workspace
 
   vision-mcp:
+    restart: unless-stopped
     build:
       context: ./vision-mcp
     env_file:
@@ -21,6 +23,7 @@ services:
       - "8012:8000"
 
   text-classifier-mcp:
+    restart: unless-stopped
     build:
       context: ./text-classifier-mcp
     env_file:
