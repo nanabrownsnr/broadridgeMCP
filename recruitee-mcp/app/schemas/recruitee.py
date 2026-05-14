@@ -1,14 +1,13 @@
 from pydantic import BaseModel, Field
 
 
-class CreateJobRequest(BaseModel):
-    """Create a draft role in Recruitee."""
+class CreateJobOfferRequest(BaseModel):
+    """Create a mapped Recruitee job offer with structured role, requirements, and distribution settings."""
 
     title: str = Field(..., description="Job title")
-    description: str | None = Field(
-        default=None,
-        description="Optional full description (legacy fallback). If structured fields are supplied, MCP composes this automatically.",
-    )
+    status: str = Field(default="draft", description="draft, internal, published, closed, archived")
+    kind: str = Field(default="job", description="job or talent_pool")
+    description: str | None = Field(default=None, description="Optional full description fallback.")
     role_summary: str | None = Field(default=None, description="Why this role exists and what it owns.")
     responsibilities: list[str] | None = Field(
         default=None,
@@ -23,8 +22,10 @@ class CreateJobRequest(BaseModel):
         description="Bonus requirements that are preferred but not mandatory.",
     )
     seniority: str | None = Field(default=None, description="e.g. Junior, Mid, Senior, Lead")
-    location_type: str | None = Field(default=None, description="e.g. Remote, Hybrid, Onsite")
+    location_type: str | None = Field(default=None, description="Remote, Hybrid, Onsite")
     employment_type: str | None = Field(default=None, description="e.g. Full-time, Contract")
+    experience: str | None = Field(default=None, description="e.g. entry_level, mid_level, experienced, manager")
+    education: str | None = Field(default=None, description="e.g. bachelor_degree, master_degree")
     team_name: str | None = Field(default=None, description="Team or department name shown in the role context.")
     interview_process: list[str] | None = Field(
         default=None,
@@ -33,7 +34,26 @@ class CreateJobRequest(BaseModel):
     pipeline_template_id: int | None = Field(default=None, description="Optional pipeline template id")
     department: str | None = Field(default=None)
     location: str | None = Field(default=None)
-    status: str = Field(default="draft", description="draft or published")
+    location_ids: list[int] | None = Field(default=None, description="Preferred structured location IDs.")
+    country_code: str | None = Field(default=None)
+    state_code: str | None = Field(default=None)
+    city: str | None = Field(default=None)
+    remote: bool | None = Field(default=None)
+    hybrid: bool | None = Field(default=None)
+    on_site: bool | None = Field(default=None)
+    number_of_openings: int | None = Field(default=None, ge=1)
+    min_hours: int | None = Field(default=None, ge=1)
+    max_hours: int | None = Field(default=None, ge=1)
+    salary_min: int | None = Field(default=None, ge=0)
+    salary_max: int | None = Field(default=None, ge=0)
+    salary_currency: str | None = Field(default=None, description="e.g. USD, EUR")
+    salary_period: str | None = Field(default=None, description="e.g. yearly, monthly, hourly")
+    offer_tags: list[str] | None = Field(default=None, description="Offer tags/labels.")
+    visibility_options: list[str] | None = Field(default=None, description="e.g. linkedin, indeed, social_share, job_location")
+    options_cv: str | None = Field(default=None, description="required, optional, off")
+    options_phone: str | None = Field(default=None, description="required, optional, off")
+    options_cover_letter: str | None = Field(default=None, description="required, optional, off")
+    options_photo: str | None = Field(default=None, description="required, optional, off")
 
 
 class PublishJobRequest(BaseModel):
@@ -52,7 +72,7 @@ class GetJobPublicUrlRequest(BaseModel):
 class ListOfferStagesRequest(BaseModel):
     """List all workflow stages for a specific role/offer."""
 
-    offer_id: int = Field(..., description="Offer ID returned by recruitee_list_job_openings or recruitee_create_job")
+    offer_id: int = Field(..., description="Offer ID returned by recruitee_list_job_openings or recruitee_create_job_offer")
     include_raw: bool = Field(default=False, description="Include full raw stages payload when true.")
 
 

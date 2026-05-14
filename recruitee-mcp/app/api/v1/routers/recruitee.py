@@ -4,7 +4,7 @@ import httpx
 from app.core.config import settings
 from app.core.platfom_integration_client import PlatformIntegrationClient, get_platform_client
 from app.schemas.recruitee import (
-    CreateJobRequest,
+    CreateJobOfferRequest,
     GetCandidateResumeSourceRequest,
     GetCandidatesResumeSourcesRequest,
     GetJobPublicUrlRequest,
@@ -78,7 +78,7 @@ def _resume_source_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_structured_description(payload: CreateJobRequest) -> str | None:
+def _build_structured_description(payload: CreateJobOfferRequest) -> str | None:
     sections: list[str] = []
 
     context_lines: list[str] = []
@@ -127,7 +127,7 @@ def _build_structured_description(payload: CreateJobRequest) -> str | None:
     return None
 
 
-def _build_requirements_html(payload: CreateJobRequest) -> str | None:
+def _build_requirements_html(payload: CreateJobOfferRequest) -> str | None:
     must = [x.strip() for x in (payload.must_have_requirements or []) if x and x.strip()]
     nice = [x.strip() for x in (payload.nice_to_have_requirements or []) if x and x.strip()]
     if not must and not nice:
@@ -142,10 +142,10 @@ def _build_requirements_html(payload: CreateJobRequest) -> str | None:
     return "".join(parts)
 
 
-@router.post("/create_job", operation_id="recruitee_create_job")
-async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
+@router.post("/create_job_offer", operation_id="recruitee_create_job_offer")
+async def create_job_offer(payload: CreateJobOfferRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
     """
-    Create a new Recruitee role (offer).
+    Create a Recruitee job offer with clean field mapping for careers page rendering.
 
     Use this when the hiring agent receives a request like
     "open a new backend role" and must create the job shell first.
@@ -153,11 +153,12 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     Required input:
     - `title`
 
-    Optional input:
-    - Structured JD fields: `role_summary`, `responsibilities`, `must_have_requirements`, `nice_to_have_requirements`
-    - Role metadata: `seniority`, `location_type`, `employment_type`, `team_name`, `interview_process`
-    - Legacy fallback: `description`
-    - Routing: `pipeline_template_id`, `department`, `location`, `status`
+    Recommended inputs for best rendered result:
+    - Role text: `role_summary`, `responsibilities`, `must_have_requirements`, `nice_to_have_requirements`
+    - Job metadata: `employment_type`, `experience`, `education`, `number_of_openings`
+    - Location/work model: `location_ids` (preferred) or `location` + `city/state/country`, plus `remote/hybrid/on_site`
+    - Salary: `salary_min`, `salary_max`, `salary_currency`, `salary_period`
+    - Distribution/form: `offer_tags`, `visibility_options`, `options_cv/options_phone/options_cover_letter/options_photo`
 
     Agent behavior guidance:
     - The agent should try to infer structured fields from the user's natural-language request first.
@@ -170,6 +171,7 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     - `{ "offer": { ... } }`
     - Use `offer.id` as `offer_id` in other tools.
     - `must_have_requirements` and `nice_to_have_requirements` are rendered into Recruitee `requirements`.
+    - Uses Recruitee `offer` payload wrapper.
 
     Auth resolution order:
     1. Platform Integration key for service `RECRUITEE_KEY_SERVICE_NAME`
@@ -181,6 +183,7 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
     offer: dict[str, Any] = {
         "title": payload.title,
         "status": payload.status,
+        "kind": payload.kind,
     }
     description_text = _build_structured_description(payload)
     if description_text is not None:
@@ -194,6 +197,52 @@ async def create_job(payload: CreateJobRequest, platform_client: PlatformIntegra
         offer["department"] = payload.department
     if payload.location is not None:
         offer["location"] = payload.location
+    if payload.location_ids is not None:
+        offer["location_ids"] = payload.location_ids
+    if payload.country_code is not None:
+        offer["country_code"] = payload.country_code
+    if payload.state_code is not None:
+        offer["state_code"] = payload.state_code
+    if payload.city is not None:
+        offer["city"] = payload.city
+    if payload.remote is not None:
+        offer["remote"] = payload.remote
+    if payload.hybrid is not None:
+        offer["hybrid"] = payload.hybrid
+    if payload.on_site is not None:
+        offer["on_site"] = payload.on_site
+    if payload.employment_type is not None:
+        offer["employment_type"] = payload.employment_type
+    if payload.experience is not None:
+        offer["experience"] = payload.experience
+    if payload.education is not None:
+        offer["education"] = payload.education
+    if payload.number_of_openings is not None:
+        offer["number_of_openings"] = payload.number_of_openings
+    if payload.min_hours is not None:
+        offer["min_hours"] = payload.min_hours
+    if payload.max_hours is not None:
+        offer["max_hours"] = payload.max_hours
+    if payload.offer_tags is not None:
+        offer["offer_tags"] = payload.offer_tags
+    if payload.visibility_options is not None:
+        offer["visibility_options"] = payload.visibility_options
+    if payload.options_cv is not None:
+        offer["options_cv"] = payload.options_cv
+    if payload.options_phone is not None:
+        offer["options_phone"] = payload.options_phone
+    if payload.options_cover_letter is not None:
+        offer["options_cover_letter"] = payload.options_cover_letter
+    if payload.options_photo is not None:
+        offer["options_photo"] = payload.options_photo
+
+    if any(v is not None for v in [payload.salary_min, payload.salary_max, payload.salary_currency, payload.salary_period]):
+        offer["salary"] = {
+            "min": payload.salary_min,
+            "max": payload.salary_max,
+            "currency": payload.salary_currency,
+            "period": payload.salary_period,
+        }
 
     data = await _api_request("POST", f"/c/{company_id}/offers", key, json={"offer": offer})
     return {"offer": data}
@@ -246,7 +295,7 @@ async def publish_job(payload: PublishJobRequest, platform_client: PlatformInteg
     Publish an existing Recruitee role so it becomes publicly visible.
 
     Required input:
-    - `offer_id` returned from `recruitee_create_job`
+    - `offer_id` returned from `recruitee_create_job_offer`
 
     Output:
     - `{ "offer": { ... } }` with updated status.
@@ -292,11 +341,13 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
         # conventional careers pattern fallback
         url_candidates.append(f"https://{company_id}.recruitee.com/o/{slug}")
 
-    apply_url = offer.get("careers_url") or offer.get("url") or (url_candidates[0] if url_candidates else None)
+    careers_url = offer.get("careers_url")
+    apply_url = careers_url or offer.get("url") or (url_candidates[0] if url_candidates else None)
     return {
         "offer_id": payload.offer_id,
         "title": offer.get("title"),
         "slug": slug,
+        "careers_url": careers_url,
         "apply_url": apply_url,
         "url_candidates": url_candidates,
         "best_url": apply_url,
