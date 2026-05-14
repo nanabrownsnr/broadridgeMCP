@@ -5,6 +5,8 @@ from app.core.config import settings
 from app.core.platfom_integration_client import PlatformIntegrationClient, get_platform_client
 from app.schemas.recruitee import (
     CreateJobRequest,
+    GetCandidateResumeSourceRequest,
+    GetCandidatesResumeSourcesRequest,
     GetJobPublicUrlRequest,
     ListOfferStagesRequest,
     ListCandidatesRequest,
@@ -55,6 +57,24 @@ async def _api_request(method: str, path: str, api_key: str, json: dict | None =
     if not response.text:
         return {}
     return response.json()
+
+
+def _resume_source_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    cv_original_file = candidate.get("cv_original_file")
+    cv_url = candidate.get("cv_url")
+    resume_text = candidate.get("cv") or candidate.get("resume_text")
+    preferred_resume_url = cv_original_file or cv_url
+    return {
+        "candidate_id": candidate.get("id"),
+        "candidate_name": candidate.get("name"),
+        "emails": candidate.get("emails", []),
+        "cv_original_file": cv_original_file,
+        "cv_url": cv_url,
+        "resume_url": preferred_resume_url,
+        "resume_text": resume_text,
+        "has_resume_url": bool(preferred_resume_url),
+        "has_resume_text": bool(resume_text),
+    }
 
 
 def _build_structured_description(payload: CreateJobRequest) -> str | None:
@@ -326,6 +346,70 @@ async def list_candidates(
 
     data = await _api_request("GET", f"/c/{company_id}/candidates", key, params=params)
     return {"candidates": data}
+
+
+@router.post("/get_candidate_resume_source", operation_id="recruitee_get_candidate_resume_source")
+async def get_candidate_resume_source(
+    payload: GetCandidateResumeSourceRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Resolve resume source fields for one candidate so downstream matching MCP can consume URL or text.
+
+    Required input:
+    - `candidate_id` from `recruitee_list_candidates`
+
+    Output:
+    - `resume_source` with:
+      - `resume_url` (preferred CV URL if available)
+      - `resume_text` (if present in provider response)
+      - `cv_original_file`, `cv_url`, `has_resume_url`, `has_resume_text`
+    - `raw_candidate`: full candidate payload
+
+    Cross-MCP usage:
+    1. call `recruitee_get_candidate_resume_source`
+    2. if `resume_source.resume_text` exists, pass it to Candidate Intelligence `match_resume_to_role.resume_text`
+    3. else pass `resume_source.resume_url` to Candidate Intelligence `match_resume_to_role.resume_url`
+    """
+    key = _resolve_api_key(platform_client)
+    company_id = _company_id()
+    candidate = await _api_request("GET", f"/c/{company_id}/candidates/{payload.candidate_id}", key)
+    resume_source = _resume_source_from_candidate(candidate)
+    return {"resume_source": resume_source, "raw_candidate": candidate}
+
+
+@router.post("/get_candidates_resume_sources", operation_id="recruitee_get_candidates_resume_sources")
+async def get_candidates_resume_sources(
+    payload: GetCandidatesResumeSourcesRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Batch-resolve resume source fields for many candidates.
+
+    Required input:
+    - `candidate_ids`: list of candidate IDs from `recruitee_list_candidates`
+
+    Output:
+    - `results`: list of `{ candidate_id, resume_source, error? }`
+    - `count`
+
+    Cross-MCP usage:
+    - Convert this output into `batch_match_resumes_to_role.resumes[]` by mapping each item:
+      - `candidate_id` as-is
+      - use `resume_text` when available, otherwise `resume_url`
+    """
+    key = _resolve_api_key(platform_client)
+    company_id = _company_id()
+    candidate_ids = payload.candidate_ids[:50]
+
+    results: list[dict[str, Any]] = []
+    for candidate_id in candidate_ids:
+        try:
+            candidate = await _api_request("GET", f"/c/{company_id}/candidates/{candidate_id}", key)
+            results.append({"candidate_id": candidate_id, "resume_source": _resume_source_from_candidate(candidate)})
+        except Exception as ex:
+            results.append({"candidate_id": candidate_id, "error": str(ex)})
+    return {"count": len(results), "results": results}
 
 
 @router.post("/move_candidate_stage", operation_id="recruitee_move_candidate_stage")

@@ -63,6 +63,21 @@ class ListCandidatesRequest(BaseModel):
     page: int = Field(default=1, ge=1)
 
 
+class GetCandidateResumeSourceRequest(BaseModel):
+    """Fetch one candidate profile and return resume source fields for downstream matching."""
+
+    candidate_id: int = Field(..., description="Candidate ID from recruitee_list_candidates output.")
+
+
+class GetCandidatesResumeSourcesRequest(BaseModel):
+    """Batch version of resume source resolution for many candidates."""
+
+    candidate_ids: list[int] = Field(
+        ...,
+        description="Candidate IDs from recruitee_list_candidates output. Recommended max 50 per request.",
+    )
+
+
 class MoveCandidateStageRequest(BaseModel):
     """Move a candidate to a pipeline stage."""
 
