@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 from app.core.config import settings
-from app.core.platfom_integration_client import PlatformIntegrationClient, get_platform_client
+from app.core.platform_integration_client import PlatformIntegrationClient, get_platform_client
 from app.schemas.recruitee import (
     CreateJobOfferRequest,
     GetCandidateResumeSourceRequest,
