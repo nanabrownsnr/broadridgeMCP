@@ -32,3 +32,12 @@ services:
       - "8013:8000"
     volumes:
       - /home/nbrown:/workspace
+
+  recruitee-mcp:
+    restart: unless-stopped
+    build:
+      context: ./recruitee-mcp
+    env_file:
+      - ./recruitee-mcp/.env
+    ports:
+      - "8014:8000"
