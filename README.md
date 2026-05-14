@@ -6,6 +6,7 @@ MCP servers in one repo:
 - `vision-mcp`: download and analyze a source URL (image/pdf/html) into structured JSON
 - `text-classifier-mcp`: CPU-first taxonomy classifier (e.g., `twynity_tickets`, `hr_tickets`) with locked label sets
 - `recruitee-mcp`: hiring workflow tools for roles, candidates, stages, and publish URLs
+- `candidate-intelligence-mcp`: resume-to-role matching (single + batch) with built-in mini-graph scoring and evidence
 
 ## One-command deploy
 
@@ -19,16 +20,19 @@ This builds and starts all services via Docker Compose.
 - Vision MCP: `http://localhost:8012`
 - Text Classifier MCP: `http://localhost:8013`
 - Recruitee MCP: `http://localhost:8014`
+- Candidate Intelligence MCP: `http://localhost:8015`
 - Streamable HTTP MCP endpoints:
   - `http://localhost:8011/mcp`
   - `http://localhost:8012/mcp`
   - `http://localhost:8013/mcp`
   - `http://localhost:8014/mcp`
+  - `http://localhost:8015/mcp`
 - SSE fallback endpoints:
   - `http://localhost:8011/sse`
   - `http://localhost:8012/sse`
   - `http://localhost:8013/sse`
   - `http://localhost:8014/sse`
+  - `http://localhost:8015/sse`
 
 ## Notes
 
