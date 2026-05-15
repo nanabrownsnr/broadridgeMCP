@@ -187,6 +187,20 @@ async def get_document_details(
     """Get PandaDoc document details and status."""
     token = _resolve_bearer_token(platform_client)
     data = await _request("GET", f"/public/v1/documents/{payload.document_id}", token)
+    # Surface common URLs when present in PandaDoc response variants.
+    document_url = data.get("document_url") or data.get("url")
+    preview_url = None
+    signing_url = None
+    embedded = data.get("embedded")
+    if isinstance(embedded, dict):
+        preview_url = embedded.get("preview_url") or embedded.get("document_url")
+        signing_url = embedded.get("recipient_view_url") or embedded.get("signing_url")
+
+    links = data.get("links")
+    if isinstance(links, dict):
+        preview_url = preview_url or links.get("preview") or links.get("document")
+        signing_url = signing_url or links.get("recipient_view") or links.get("sign")
+
     return {
         "document_id": payload.document_id,
         "name": data.get("name"),
@@ -194,6 +208,9 @@ async def get_document_details(
         "date_created": data.get("date_created"),
         "date_modified": data.get("date_modified"),
         "recipients": data.get("recipients"),
+        "document_url": document_url,
+        "preview_url": preview_url,
+        "signing_url": signing_url,
         "raw": data,
     }
 
