@@ -184,9 +184,9 @@ async def get_document_details(
     payload: DocumentDetailsRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
-    """Get PandaDoc document details and status."""
+    """Get PandaDoc rich document details and optionally generate review/signing session URLs."""
     token = _resolve_bearer_token(platform_client)
-    data = await _request("GET", f"/public/v1/documents/{payload.document_id}", token)
+    data = await _request("GET", f"/public/v1/documents/{payload.document_id}/details", token)
     # Surface common URLs when present in PandaDoc response variants.
     document_url = data.get("document_url") or data.get("url")
     preview_url = None
@@ -201,6 +201,47 @@ async def get_document_details(
         preview_url = preview_url or links.get("preview") or links.get("document")
         signing_url = signing_url or links.get("recipient_view") or links.get("sign")
 
+    review_session: dict | None = None
+    if payload.include_review_session:
+        if not payload.review_session_email:
+            raise HTTPException(
+                status_code=400,
+                detail="review_session_email is required when include_review_session=true",
+            )
+        review_session = await _request(
+            "POST",
+            f"/public/v1/documents/{payload.document_id}/editing-sessions",
+            token,
+            json_body={
+                "email": payload.review_session_email,
+                "lifetime": payload.review_session_lifetime,
+            },
+        )
+
+    signing_session: dict | None = None
+    if payload.include_signing_session:
+        if not payload.signing_recipient_email:
+            raise HTTPException(
+                status_code=400,
+                detail="signing_recipient_email is required when include_signing_session=true",
+            )
+        signing_session = await _request(
+            "POST",
+            f"/public/v1/documents/{payload.document_id}/session",
+            token,
+            json_body={
+                "recipient": payload.signing_recipient_email,
+                "lifetime": payload.signing_session_lifetime,
+            },
+        )
+        if isinstance(signing_session, dict):
+            signing_url = (
+                signing_url
+                or signing_session.get("session_url")
+                or signing_session.get("url")
+                or signing_session.get("recipient_view_url")
+            )
+
     return {
         "document_id": payload.document_id,
         "name": data.get("name"),
@@ -211,6 +252,8 @@ async def get_document_details(
         "document_url": document_url,
         "preview_url": preview_url,
         "signing_url": signing_url,
+        "review_session": review_session,
+        "signing_session": signing_session,
         "raw": data,
     }
 

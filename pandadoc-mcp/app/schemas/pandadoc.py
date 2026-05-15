@@ -27,6 +27,34 @@ class CreateDocumentFromTemplateRequest(BaseModel):
 
 class DocumentDetailsRequest(BaseModel):
     document_id: str = Field(..., min_length=1)
+    include_review_session: bool = Field(
+        default=False,
+        description="If true, also request an embedded editing session for draft review.",
+    )
+    review_session_email: EmailStr | None = Field(
+        default=None,
+        description="Email to bind editing session to when include_review_session=true.",
+    )
+    review_session_lifetime: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Embedded editing session lifetime in seconds.",
+    )
+    include_signing_session: bool = Field(
+        default=False,
+        description="If true, also request embedded signing session URL.",
+    )
+    signing_recipient_email: EmailStr | None = Field(
+        default=None,
+        description="Recipient email used to generate signing session URL.",
+    )
+    signing_session_lifetime: int = Field(
+        default=3600,
+        ge=60,
+        le=31535999,
+        description="Embedded signing session lifetime in seconds.",
+    )
 
 
 class SendDocumentRequest(BaseModel):
