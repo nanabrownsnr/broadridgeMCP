@@ -68,3 +68,12 @@ services:
       - ./pandadoc-mcp/.env
     ports:
       - "8017:8000"
+
+  recruitee-apps-mcp:
+    restart: unless-stopped
+    build:
+      context: ./recruitee-apps-mcp
+    env_file:
+      - ./recruitee-apps-mcp/.env
+    ports:
+      - "8018:8018"
