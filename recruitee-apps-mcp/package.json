@@ -1,28 +1,29 @@
-﻿{
-  "name": "recruitee-apps-mcp",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsc --noEmit && cross-env INPUT=mcp-app.html vite build",
-    "start": "concurrently \"cross-env NODE_ENV=development INPUT=mcp-app.html vite build --watch\" \"tsx watch main.ts\"",
-    "start:prod": "cross-env NODE_ENV=production INPUT=mcp-app.html vite build && tsx main.ts"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.1.2",
-    "@modelcontextprotocol/sdk": "^1.13.2",
-    "cors": "^2.8.5",
-    "express": "^4.21.2"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.3",
-    "@types/node": "^22.15.30",
-    "concurrently": "^9.2.0",
-    "cross-env": "^7.0.3",
-    "tsx": "^4.20.6",
-    "typescript": "^5.8.3",
-    "vite": "^5.4.19",
-    "vite-plugin-singlefile": "^2.1.0"
-  }
+{
+    "name":  "recruitee-apps-mcp",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "build":  "tsc --noEmit \u0026\u0026 cross-env INPUT=mcp-app.html vite build",
+                    "start":  "concurrently \"cross-env NODE_ENV=development INPUT=mcp-app.html vite build --watch\" \"tsx watch main.ts\"",
+                    "start:prod":  "cross-env NODE_ENV=production INPUT=mcp-app.html vite build \u0026\u0026 tsx main.ts"
+                },
+    "dependencies":  {
+                         "@modelcontextprotocol/ext-apps":  "^1.1.2",
+                         "@modelcontextprotocol/sdk":  "^1.13.2",
+                         "cors":  "^2.8.5",
+                         "express":  "^4.21.2",
+                         "zod":  "^3.24.1"
+                     },
+    "devDependencies":  {
+                            "@types/cors":  "^2.8.17",
+                            "@types/express":  "^5.0.3",
+                            "@types/node":  "^22.15.30",
+                            "concurrently":  "^9.2.0",
+                            "cross-env":  "^7.0.3",
+                            "tsx":  "^4.20.6",
+                            "typescript":  "^5.8.3",
+                            "vite":  "^5.4.19",
+                            "vite-plugin-singlefile":  "^2.1.0"
+                        }
 }

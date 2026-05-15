@@ -1,7 +1,8 @@
-﻿import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -63,7 +64,7 @@ function addProxyTool(
     {
       title: cfg.name,
       description: cfg.description,
-      inputSchema: cfg.inputSchema ?? { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: z.object({}).passthrough(),
       _meta: { ui: metaUi },
     },
     async (rawArgs) => {
@@ -336,3 +337,4 @@ export function createServer(): McpServer {
 
   return server;
 }
+
