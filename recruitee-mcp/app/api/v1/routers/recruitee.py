@@ -15,6 +15,7 @@ from app.schemas.recruitee import (
     RegisterWebhookRequest,
 )
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/recruitee", tags=["recruitee"])
 
@@ -311,7 +312,19 @@ async def create_job_offer(payload: CreateJobOfferRequest, platform_client: Plat
     return {"offer": data}
 
 
-@router.get("/list_job_openings", operation_id="recruitee_list_job_openings")
+@router.get(
+    "/list_job_openings",
+    operation_id="recruitee_list_job_openings",
+    openapi_extra={
+        "_meta": {
+            "ui": {
+                "resourceUri": "ui://recruitee/app",
+                "visibility": ["model", "app"],
+            },
+            "ui/resourceUri": "ui://recruitee/app",
+        }
+    },
+)
 async def list_job_openings(
     include_raw: bool = False,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
@@ -479,7 +492,19 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
     return result
 
 
-@router.post("/list_candidates", operation_id="recruitee_list_candidates")
+@router.post(
+    "/list_candidates",
+    operation_id="recruitee_list_candidates",
+    openapi_extra={
+        "_meta": {
+            "ui": {
+                "resourceUri": "ui://recruitee/app",
+                "visibility": ["model", "app"],
+            },
+            "ui/resourceUri": "ui://recruitee/app",
+        }
+    },
+)
 async def list_candidates(
     payload: ListCandidatesRequest | None = None,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
@@ -783,8 +808,50 @@ async def model_info() -> dict:
         "service": "recruitee_mcp",
         "api_base": settings.RECRUITEE_API_URL,
         "requires": ["RECRUITEE_COMPANY_ID"],
+        "mcp_apps": {
+            "resource_uri": "ui://recruitee/app",
+            "ui_enabled_tools": ["recruitee_list_job_openings", "recruitee_list_candidates"],
+            "note": (
+                "Tool-level `_meta.ui.resourceUri` is attached via openapi_extra. "
+                "Host must support MCP Apps and resolve ui resources."
+            ),
+        },
         "auth_resolution_order": [
             f"PlatformIntegration(service='{settings.RECRUITEE_KEY_SERVICE_NAME}')",
             "RECRUITEE_API_KEY env fallback",
         ],
     }
+
+
+@router.get("/ui/recruitee/app", include_in_schema=False, response_class=HTMLResponse)
+async def recruitee_ui_resource() -> str:
+    """
+    Minimal HTML shell for Recruitee MCP App view prototyping.
+
+    Note: This HTTP route is a pragmatic debug fallback for hosts that do not yet
+    resolve `ui://` resources via MCP `resources/read`.
+    """
+    return """<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Recruitee MCP App</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f7f8fa; color: #1f2937; }
+      .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+      .muted { color: #6b7280; font-size: 12px; }
+      code { background: #eef2ff; padding: 2px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0;">Recruitee MCP App Shell</h3>
+      <p style="margin: 0 0 8px 0;">This is a placeholder UI for two views:</p>
+      <ul>
+        <li><code>openings_explorer</code></li>
+        <li><code>pipeline_kanban</code></li>
+      </ul>
+      <p class="muted">If your host supports MCP Apps with <code>ui://</code> resources, it should render linked views automatically.</p>
+    </div>
+  </body>
+</html>"""
