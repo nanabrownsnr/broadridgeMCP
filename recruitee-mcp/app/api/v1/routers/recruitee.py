@@ -15,25 +15,8 @@ from app.schemas.recruitee import (
     RegisterWebhookRequest,
 )
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/recruitee", tags=["recruitee"])
-
-RECRUITEE_UI_RESOURCE_URI = "ui://recruitee/app"
-
-
-def _ui_meta(view: str, title: str) -> dict[str, Any]:
-    """
-    Lightweight MCP Apps metadata block.
-
-    Clients that support MCP Apps can use this to route to a specific UI view.
-    Non-UI clients can ignore it safely.
-    """
-    return {
-        "resource_uri": RECRUITEE_UI_RESOURCE_URI,
-        "view": view,
-        "title": title,
-    }
 
 
 def _resolve_api_key_candidates(platform_client: PlatformIntegrationClient | None = None) -> list[tuple[str, str]]:
@@ -312,19 +295,7 @@ async def create_job_offer(payload: CreateJobOfferRequest, platform_client: Plat
     return {"offer": data}
 
 
-@router.get(
-    "/list_job_openings",
-    operation_id="recruitee_list_job_openings",
-    openapi_extra={
-        "_meta": {
-            "ui": {
-                "resourceUri": "ui://recruitee/app",
-                "visibility": ["model", "app"],
-            },
-            "ui/resourceUri": "ui://recruitee/app",
-        }
-    },
-)
+@router.get("/list_job_openings", operation_id="recruitee_list_job_openings")
 async def list_job_openings(
     include_raw: bool = False,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
@@ -359,16 +330,6 @@ async def list_job_openings(
     result = {
         "total_count": data.get("meta", {}).get("total_count", len(openings)),
         "openings": openings,
-        "ui": {
-            **_ui_meta("openings_explorer", "Openings Explorer"),
-            "pagination": {
-                "page": 1,
-                "page_size": 1000,
-                "total_count": data.get("meta", {}).get("total_count", len(openings)),
-                "has_next": False,
-                "has_prev": False,
-            },
-        },
     }
     if include_raw:
         result["raw"] = data
@@ -437,10 +398,6 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
         "apply_url": apply_url,
         "url_candidates": url_candidates,
         "best_url": apply_url,
-        "ui": {
-            **_ui_meta("opening_detail", "Opening Detail"),
-            "actions": ["publish_job", "copy_apply_url", "open_careers_url"],
-        },
         **({"raw_offer": data} if payload.include_raw_offer else {}),
     }
 
@@ -479,32 +436,13 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
                 "kind": item.get("kind") or item.get("type"),
             }
         )
-    result: dict[str, Any] = {
-        "offer_id": payload.offer_id,
-        "stages": stages,
-        "ui": {
-            **_ui_meta("pipeline_kanban", "Pipeline Kanban"),
-            "offer_id": payload.offer_id,
-        },
-    }
+    result: dict[str, Any] = {"offer_id": payload.offer_id, "stages": stages}
     if payload.include_raw:
         result["raw"] = data
     return result
 
 
-@router.post(
-    "/list_candidates",
-    operation_id="recruitee_list_candidates",
-    openapi_extra={
-        "_meta": {
-            "ui": {
-                "resourceUri": "ui://recruitee/app",
-                "visibility": ["model", "app"],
-            },
-            "ui/resourceUri": "ui://recruitee/app",
-        }
-    },
-)
+@router.post("/list_candidates", operation_id="recruitee_list_candidates")
 async def list_candidates(
     payload: ListCandidatesRequest | None = None,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
@@ -555,59 +493,7 @@ async def list_candidates(
                 ],
             }
         )
-    board_columns: list[dict[str, Any]] = []
-    stage_lookup: dict[int, str] = {}
-    if payload.offer_id is not None:
-        try:
-            stages_data = await _api_request_with_failover("GET", f"/c/{company_id}/offers/{payload.offer_id}/stages", key_candidates)
-            stage_items = stages_data.get("stages", stages_data if isinstance(stages_data, list) else [])
-            for item in stage_items:
-                sid = item.get("id")
-                if sid is not None:
-                    stage_lookup[int(sid)] = item.get("name") or item.get("title") or str(sid)
-        except Exception:
-            # Keep compact response resilient if stage lookup fails.
-            stage_lookup = {}
-
-    stage_buckets: dict[str, list[dict[str, Any]]] = {}
-    for c in compact:
-        stage_id = None
-        for p in c.get("placements", []):
-            if payload.offer_id is None or p.get("offer_id") == payload.offer_id:
-                stage_id = p.get("stage_id")
-                break
-        stage_label = "Unstaged"
-        if stage_id is not None:
-            stage_label = stage_lookup.get(int(stage_id), f"Stage {stage_id}")
-        stage_buckets.setdefault(stage_label, []).append(c)
-
-    for stage_name, cards in stage_buckets.items():
-        board_columns.append(
-            {
-                "stage_name": stage_name,
-                "count": len(cards),
-                "cards": cards,
-            }
-        )
-
-    result: dict[str, Any] = {
-        "count": len(compact),
-        "candidates": compact,
-        "ui": {
-            **_ui_meta("pipeline_kanban", "Pipeline Kanban"),
-            "offer_id": payload.offer_id,
-            "pagination": {
-                "page": payload.page,
-                "page_size": payload.limit,
-                "total_count": len(compact),
-                "has_next": len(compact) >= payload.limit,
-                "has_prev": payload.page > 1,
-            },
-            "kanban": {
-                "columns": board_columns,
-            },
-        },
-    }
+    result: dict[str, Any] = {"count": len(compact), "candidates": compact}
     if payload.include_raw:
         result["raw"] = data
     return result
@@ -760,16 +646,7 @@ async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_clie
         key_candidates,
         json=body,
     )
-    return {
-        "result": data,
-        "action_type": "move_candidate_stage",
-        "is_critical": True,
-        "requires_chat_confirmation": True,
-        "user_message": (
-            f"Moved candidate {payload.candidate_id} in offer {payload.offer_id} "
-            f"to stage {payload.stage_id}."
-        ),
-    }
+    return {"result": data}
 
 
 @router.post("/register_webhook", operation_id="recruitee_register_webhook")
@@ -808,50 +685,8 @@ async def model_info() -> dict:
         "service": "recruitee_mcp",
         "api_base": settings.RECRUITEE_API_URL,
         "requires": ["RECRUITEE_COMPANY_ID"],
-        "mcp_apps": {
-            "resource_uri": "ui://recruitee/app",
-            "ui_enabled_tools": ["recruitee_list_job_openings", "recruitee_list_candidates"],
-            "note": (
-                "Tool-level `_meta.ui.resourceUri` is attached via openapi_extra. "
-                "Host must support MCP Apps and resolve ui resources."
-            ),
-        },
         "auth_resolution_order": [
             f"PlatformIntegration(service='{settings.RECRUITEE_KEY_SERVICE_NAME}')",
             "RECRUITEE_API_KEY env fallback",
         ],
     }
-
-
-@router.get("/ui/recruitee/app", include_in_schema=False, response_class=HTMLResponse)
-async def recruitee_ui_resource() -> str:
-    """
-    Minimal HTML shell for Recruitee MCP App view prototyping.
-
-    Note: This HTTP route is a pragmatic debug fallback for hosts that do not yet
-    resolve `ui://` resources via MCP `resources/read`.
-    """
-    return """<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Recruitee MCP App</title>
-    <style>
-      body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f7f8fa; color: #1f2937; }
-      .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-      .muted { color: #6b7280; font-size: 12px; }
-      code { background: #eef2ff; padding: 2px 6px; border-radius: 6px; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h3 style="margin: 0 0 8px 0;">Recruitee MCP App Shell</h3>
-      <p style="margin: 0 0 8px 0;">This is a placeholder UI for two views:</p>
-      <ul>
-        <li><code>openings_explorer</code></li>
-        <li><code>pipeline_kanban</code></li>
-      </ul>
-      <p class="muted">If your host supports MCP Apps with <code>ui://</code> resources, it should render linked views automatically.</p>
-    </div>
-  </body>
-</html>"""
