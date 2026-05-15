@@ -19,25 +19,40 @@ from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter(prefix="/recruitee", tags=["recruitee"])
 
 
-def _resolve_api_key(platform_client: PlatformIntegrationClient | None = None) -> str:
+def _resolve_api_key_candidates(platform_client: PlatformIntegrationClient | None = None) -> list[tuple[str, str]]:
+    """
+    Resolve API key candidates in priority order.
+
+    Returns tuples of (source, key), where source is `pis` or `env`.
+    Duplicate key values are de-duplicated to avoid redundant retries.
+    """
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
     # Preferred: Platform Integration key
     if platform_client is not None:
         try:
             key = platform_client.get_access_key(settings.RECRUITEE_KEY_SERVICE_NAME)
-            if key:
-                return key
+            if key and key not in seen:
+                candidates.append(("pis", key))
+                seen.add(key)
         except Exception:
             pass
+
     # Fallback: static env key
-    if settings.RECRUITEE_API_KEY:
-        return settings.RECRUITEE_API_KEY
-    raise HTTPException(
-        status_code=500,
-        detail=(
-            "Recruitee API key not configured. Provide via Platform Integration "
-            f"service='{settings.RECRUITEE_KEY_SERVICE_NAME}' or RECRUITEE_API_KEY env."
-        ),
-    )
+    if settings.RECRUITEE_API_KEY and settings.RECRUITEE_API_KEY not in seen:
+        candidates.append(("env", settings.RECRUITEE_API_KEY))
+        seen.add(settings.RECRUITEE_API_KEY)
+
+    if not candidates:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Recruitee API key not configured. Provide via Platform Integration "
+                f"service='{settings.RECRUITEE_KEY_SERVICE_NAME}' or RECRUITEE_API_KEY env."
+            ),
+        )
+    return candidates
 
 
 def _company_id() -> str:
@@ -57,6 +72,37 @@ async def _api_request(method: str, path: str, api_key: str, json: dict | None =
     if not response.text:
         return {}
     return response.json()
+
+
+async def _api_request_with_failover(
+    method: str,
+    path: str,
+    key_candidates: list[tuple[str, str]],
+    json: dict | None = None,
+    params: dict | None = None,
+) -> Any:
+    """
+    Execute request with key failover.
+
+    Behavior:
+    - Try candidates in order (typically `pis` then `env`).
+    - If a candidate returns 401/403, retry next candidate.
+    - For any other HTTP error, stop and return that error.
+    """
+    failures: list[str] = []
+    for idx, (source, key) in enumerate(key_candidates):
+        try:
+            return await _api_request(method, path, key, json=json, params=params)
+        except HTTPException as ex:
+            if ex.status_code in (401, 403) and idx < len(key_candidates) - 1:
+                failures.append(f"{source}:{ex.status_code}")
+                continue
+            if failures:
+                raise HTTPException(
+                    status_code=ex.status_code,
+                    detail=f"{ex.detail} | auth_attempts={','.join(failures + [f'{source}:{ex.status_code}'])}",
+                )
+            raise
 
 
 def _resume_source_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -178,7 +224,7 @@ async def create_job_offer(payload: CreateJobOfferRequest, platform_client: Plat
     1. Platform Integration key for service `RECRUITEE_KEY_SERVICE_NAME`
     2. `RECRUITEE_API_KEY` from env fallback
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
 
     offer: dict[str, Any] = {
@@ -245,7 +291,7 @@ async def create_job_offer(payload: CreateJobOfferRequest, platform_client: Plat
             "period": payload.salary_period,
         }
 
-    data = await _api_request("POST", f"/c/{company_id}/offers", key, json={"offer": offer})
+    data = await _api_request_with_failover("POST", f"/c/{company_id}/offers", key_candidates, json={"offer": offer})
     return {"offer": data}
 
 
@@ -267,9 +313,9 @@ async def list_job_openings(
     - `openings`: list of `{ offer_id, title, status, slug, published_at }`
     - `raw`: full provider payload when `include_raw=true`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
-    data = await _api_request("GET", f"/c/{company_id}/offers", key, params={"limit": 1000, "page": 1})
+    data = await _api_request_with_failover("GET", f"/c/{company_id}/offers", key_candidates, params={"limit": 1000, "page": 1})
     offers = data.get("offers", [])
     openings = [
         {
@@ -301,12 +347,12 @@ async def publish_job(payload: PublishJobRequest, platform_client: PlatformInteg
     Output:
     - `{ "offer": { ... } }` with updated status.
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
-    data = await _api_request(
+    data = await _api_request_with_failover(
         "PATCH",
         f"/c/{company_id}/offers/{payload.offer_id}",
-        key,
+        key_candidates,
         json={"offer": {"status": "published"}},
     )
     return {"offer": data}
@@ -325,9 +371,9 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
     - `url_candidates` (alternatives if multiple URL fields exist)
     - `raw_offer` (full offer object)
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
-    data = await _api_request("GET", f"/c/{company_id}/offers/{payload.offer_id}", key)
+    data = await _api_request_with_failover("GET", f"/c/{company_id}/offers/{payload.offer_id}", key_candidates)
     offer = data.get("offer", data)
 
     # Recruitee APIs can expose URL fields differently; return best available candidates.
@@ -374,9 +420,9 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
     2. call this tool to map stage names -> stage IDs
     3. call `recruitee_move_candidate_stage` with the selected `stage_id`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
-    data = await _api_request("GET", f"/c/{company_id}/offers/{payload.offer_id}/stages", key)
+    data = await _api_request_with_failover("GET", f"/c/{company_id}/offers/{payload.offer_id}/stages", key_candidates)
 
     # Recruitee responses can vary by plan/version; normalize common shapes.
     stage_items = data.get("stages", data if isinstance(data, list) else [])
@@ -418,7 +464,7 @@ async def list_candidates(
     - Compact default: `{ "count", "candidates": [ {candidate_id, name, emails, placements} ] }`
     - Raw payload only when `include_raw=true`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
     payload = payload or ListCandidatesRequest()
 
@@ -428,7 +474,7 @@ async def list_candidates(
     if payload.stage_id is not None:
         params["stage_id"] = payload.stage_id
 
-    data = await _api_request("GET", f"/c/{company_id}/candidates", key, params=params)
+    data = await _api_request_with_failover("GET", f"/c/{company_id}/candidates", key_candidates, params=params)
     candidate_rows = data.get("candidates", [])
     compact = []
     for c in candidate_rows:
@@ -476,9 +522,9 @@ async def get_candidate_resume_source(
     2. if `resume_source.resume_text` exists, pass it to Candidate Intelligence `match_resume_to_role.resume_text`
     3. else pass `resume_source.resume_url` to Candidate Intelligence `match_resume_to_role.resume_url`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
-    candidate = await _api_request("GET", f"/c/{company_id}/candidates/{payload.candidate_id}", key)
+    candidate = await _api_request_with_failover("GET", f"/c/{company_id}/candidates/{payload.candidate_id}", key_candidates)
     resume_source = _resume_source_from_candidate(candidate)
     result: dict[str, Any] = {"resume_source": resume_source}
     if payload.include_raw_candidate:
@@ -507,14 +553,14 @@ async def get_candidates_resume_sources(
       - `candidate_id` as-is
       - use `resume_text` when available, otherwise `resume_url`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
     candidate_ids = payload.candidate_ids[:50]
 
     results: list[dict[str, Any]] = []
     for candidate_id in candidate_ids:
         try:
-            candidate = await _api_request("GET", f"/c/{company_id}/candidates/{candidate_id}", key)
+            candidate = await _api_request_with_failover("GET", f"/c/{company_id}/candidates/{candidate_id}", key_candidates)
             item = {"candidate_id": candidate_id, "resume_source": _resume_source_from_candidate(candidate)}
             if payload.include_raw_candidate:
                 item["raw_candidate"] = candidate
@@ -550,7 +596,7 @@ async def build_batch_matching_input(
        - your `role_requirements_text`
        - returned `resumes` array
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
     candidate_ids = payload.candidate_ids[:50]
 
@@ -559,7 +605,7 @@ async def build_batch_matching_input(
 
     for candidate_id in candidate_ids:
         try:
-            candidate = await _api_request("GET", f"/c/{company_id}/candidates/{candidate_id}", key)
+            candidate = await _api_request_with_failover("GET", f"/c/{company_id}/candidates/{candidate_id}", key_candidates)
             source = _resume_source_from_candidate(candidate)
             if source.get("resume_text"):
                 resumes.append({"candidate_id": str(candidate_id), "resume_text": source["resume_text"]})
@@ -586,7 +632,7 @@ async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_clie
     Output:
     - `{ "result": { ... } }`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
 
     # endpoint may vary by account version; this is common move action pattern.
@@ -594,10 +640,10 @@ async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_clie
         "offer_id": payload.offer_id,
         "stage_id": payload.stage_id,
     }
-    data = await _api_request(
+    data = await _api_request_with_failover(
         "POST",
         f"/c/{company_id}/candidates/{payload.candidate_id}/move",
-        key,
+        key_candidates,
         json=body,
     )
     return {"result": data}
@@ -615,13 +661,13 @@ async def register_webhook(payload: RegisterWebhookRequest, platform_client: Pla
     Output:
     - `{ "webhook": { ... } }`
     """
-    key = _resolve_api_key(platform_client)
+    key_candidates = _resolve_api_key_candidates(platform_client)
     company_id = _company_id()
     body = {
         "target_url": payload.target_url,
         "event_type": payload.event_type,
     }
-    data = await _api_request("POST", f"/c/{company_id}/webhooks", key, json=body)
+    data = await _api_request_with_failover("POST", f"/c/{company_id}/webhooks", key_candidates, json=body)
     return {"webhook": data}
 
 
