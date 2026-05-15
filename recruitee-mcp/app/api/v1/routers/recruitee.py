@@ -18,6 +18,22 @@ from fastapi import APIRouter, Depends, HTTPException
 
 router = APIRouter(prefix="/recruitee", tags=["recruitee"])
 
+RECRUITEE_UI_RESOURCE_URI = "ui://recruitee/app"
+
+
+def _ui_meta(view: str, title: str) -> dict[str, Any]:
+    """
+    Lightweight MCP Apps metadata block.
+
+    Clients that support MCP Apps can use this to route to a specific UI view.
+    Non-UI clients can ignore it safely.
+    """
+    return {
+        "resource_uri": RECRUITEE_UI_RESOURCE_URI,
+        "view": view,
+        "title": title,
+    }
+
 
 def _resolve_api_key_candidates(platform_client: PlatformIntegrationClient | None = None) -> list[tuple[str, str]]:
     """
@@ -330,6 +346,16 @@ async def list_job_openings(
     result = {
         "total_count": data.get("meta", {}).get("total_count", len(openings)),
         "openings": openings,
+        "ui": {
+            **_ui_meta("openings_explorer", "Openings Explorer"),
+            "pagination": {
+                "page": 1,
+                "page_size": 1000,
+                "total_count": data.get("meta", {}).get("total_count", len(openings)),
+                "has_next": False,
+                "has_prev": False,
+            },
+        },
     }
     if include_raw:
         result["raw"] = data
@@ -398,6 +424,10 @@ async def get_job_public_url(payload: GetJobPublicUrlRequest, platform_client: P
         "apply_url": apply_url,
         "url_candidates": url_candidates,
         "best_url": apply_url,
+        "ui": {
+            **_ui_meta("opening_detail", "Opening Detail"),
+            "actions": ["publish_job", "copy_apply_url", "open_careers_url"],
+        },
         **({"raw_offer": data} if payload.include_raw_offer else {}),
     }
 
@@ -436,7 +466,14 @@ async def list_offer_stages(payload: ListOfferStagesRequest, platform_client: Pl
                 "kind": item.get("kind") or item.get("type"),
             }
         )
-    result: dict[str, Any] = {"offer_id": payload.offer_id, "stages": stages}
+    result: dict[str, Any] = {
+        "offer_id": payload.offer_id,
+        "stages": stages,
+        "ui": {
+            **_ui_meta("pipeline_kanban", "Pipeline Kanban"),
+            "offer_id": payload.offer_id,
+        },
+    }
     if payload.include_raw:
         result["raw"] = data
     return result
@@ -493,7 +530,59 @@ async def list_candidates(
                 ],
             }
         )
-    result: dict[str, Any] = {"count": len(compact), "candidates": compact}
+    board_columns: list[dict[str, Any]] = []
+    stage_lookup: dict[int, str] = {}
+    if payload.offer_id is not None:
+        try:
+            stages_data = await _api_request_with_failover("GET", f"/c/{company_id}/offers/{payload.offer_id}/stages", key_candidates)
+            stage_items = stages_data.get("stages", stages_data if isinstance(stages_data, list) else [])
+            for item in stage_items:
+                sid = item.get("id")
+                if sid is not None:
+                    stage_lookup[int(sid)] = item.get("name") or item.get("title") or str(sid)
+        except Exception:
+            # Keep compact response resilient if stage lookup fails.
+            stage_lookup = {}
+
+    stage_buckets: dict[str, list[dict[str, Any]]] = {}
+    for c in compact:
+        stage_id = None
+        for p in c.get("placements", []):
+            if payload.offer_id is None or p.get("offer_id") == payload.offer_id:
+                stage_id = p.get("stage_id")
+                break
+        stage_label = "Unstaged"
+        if stage_id is not None:
+            stage_label = stage_lookup.get(int(stage_id), f"Stage {stage_id}")
+        stage_buckets.setdefault(stage_label, []).append(c)
+
+    for stage_name, cards in stage_buckets.items():
+        board_columns.append(
+            {
+                "stage_name": stage_name,
+                "count": len(cards),
+                "cards": cards,
+            }
+        )
+
+    result: dict[str, Any] = {
+        "count": len(compact),
+        "candidates": compact,
+        "ui": {
+            **_ui_meta("pipeline_kanban", "Pipeline Kanban"),
+            "offer_id": payload.offer_id,
+            "pagination": {
+                "page": payload.page,
+                "page_size": payload.limit,
+                "total_count": len(compact),
+                "has_next": len(compact) >= payload.limit,
+                "has_prev": payload.page > 1,
+            },
+            "kanban": {
+                "columns": board_columns,
+            },
+        },
+    }
     if payload.include_raw:
         result["raw"] = data
     return result
@@ -646,7 +735,16 @@ async def move_candidate_stage(payload: MoveCandidateStageRequest, platform_clie
         key_candidates,
         json=body,
     )
-    return {"result": data}
+    return {
+        "result": data,
+        "action_type": "move_candidate_stage",
+        "is_critical": True,
+        "requires_chat_confirmation": True,
+        "user_message": (
+            f"Moved candidate {payload.candidate_id} in offer {payload.offer_id} "
+            f"to stage {payload.stage_id}."
+        ),
+    }
 
 
 @router.post("/register_webhook", operation_id="recruitee_register_webhook")
