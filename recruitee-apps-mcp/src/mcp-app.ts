@@ -37,6 +37,10 @@ function renderPipeline(data: any): string {
   `;
 }
 
+app.ontoolinput = () => {
+  root.innerHTML = "<p>Loading view data...</p>";
+};
+
 app.ontoolresult = (result) => {
   const payload: any = result.structuredContent ?? {};
   const view = payload?.view;
@@ -52,6 +56,14 @@ app.ontoolresult = (result) => {
   }
 
   root.innerHTML = `<h3>Recruitee App</h3>${renderJsonBlock(result)}`;
+};
+
+app.onhostcontextchanged = (ctx) => {
+  void app.sendLog({ level: "info", data: { event: "host_context_changed", context: ctx } });
+};
+
+app.onteardown = async () => {
+  return {};
 };
 
 app.connect();

@@ -27,6 +27,13 @@ async function callRecruiteeApi(pathname: string, method: "GET" | "POST", body?:
   return data;
 }
 
+function toErrorResult(message: string) {
+  return {
+    content: [{ type: "text" as const, text: message }],
+    isError: true,
+  };
+}
+
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "Recruitee Apps MCP",
@@ -49,21 +56,21 @@ export function createServer(): McpServer {
       _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const includeRaw = !!(args as { include_raw?: boolean }).include_raw;
-      const data = await callRecruiteeApi("/api/v1/recruitee/list_job_openings?include_raw=false", "GET");
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Openings loaded. Render openings_explorer view.",
+      try {
+        const includeRaw = !!(args as { include_raw?: boolean }).include_raw;
+        const data = await callRecruiteeApi("/api/v1/recruitee/list_job_openings?include_raw=false", "GET");
+        return {
+          content: [{ type: "text", text: "Openings loaded. Render openings_explorer view." }],
+          structuredContent: {
+            view: "openings_explorer",
+            include_raw: includeRaw,
+            data,
           },
-        ],
-        structuredContent: {
-          view: "openings_explorer",
-          include_raw: includeRaw,
-          data,
-        },
-      };
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error loading openings.";
+        return toErrorResult(`Failed to load openings: ${message}`);
+      }
     },
   );
 
@@ -86,33 +93,33 @@ export function createServer(): McpServer {
       _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const { offer_id, limit = 50, page = 1 } = args as { offer_id: number; limit?: number; page?: number };
-      const stages = await callRecruiteeApi("/api/v1/recruitee/list_offer_stages", "POST", {
-        offer_id,
-        include_raw: false,
-      });
-      const candidates = await callRecruiteeApi("/api/v1/recruitee/list_candidates", "POST", {
-        offer_id,
-        limit,
-        page,
-        include_raw: false,
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Pipeline loaded for offer ${offer_id}. Render pipeline_kanban view.`,
+      try {
+        const { offer_id, limit = 50, page = 1 } = args as { offer_id: number; limit?: number; page?: number };
+        const stages = await callRecruiteeApi("/api/v1/recruitee/list_offer_stages", "POST", {
+          offer_id,
+          include_raw: false,
+        });
+        const candidates = await callRecruiteeApi("/api/v1/recruitee/list_candidates", "POST", {
+          offer_id,
+          limit,
+          page,
+          include_raw: false,
+        });
+        return {
+          content: [{ type: "text", text: `Pipeline loaded for offer ${offer_id}. Render pipeline_kanban view.` }],
+          structuredContent: {
+            view: "pipeline_kanban",
+            data: {
+              offer_id,
+              stages,
+              candidates,
+            },
           },
-        ],
-        structuredContent: {
-          view: "pipeline_kanban",
-          data: {
-            offer_id,
-            stages,
-            candidates,
-          },
-        },
-      };
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error loading pipeline.";
+        return toErrorResult(`Failed to load pipeline: ${message}`);
+      }
     },
   );
 
@@ -135,15 +142,20 @@ export function createServer(): McpServer {
       _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["app"] } },
     },
     async (args) => {
-      const payload = args as { candidate_id: number; offer_id: number; stage_id: number };
-      const data = await callRecruiteeApi("/api/v1/recruitee/move_candidate_stage", "POST", payload);
-      return {
-        content: [{ type: "text", text: "Candidate stage updated." }],
-        structuredContent: {
-          view: "pipeline_kanban",
-          action_result: data,
-        },
-      };
+      try {
+        const payload = args as { candidate_id: number; offer_id: number; stage_id: number };
+        const data = await callRecruiteeApi("/api/v1/recruitee/move_candidate_stage", "POST", payload);
+        return {
+          content: [{ type: "text", text: "Candidate stage updated." }],
+          structuredContent: {
+            view: "pipeline_kanban",
+            action_result: data,
+          },
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error moving candidate stage.";
+        return toErrorResult(`Failed to move candidate stage: ${message}`);
+      }
     },
   );
 
