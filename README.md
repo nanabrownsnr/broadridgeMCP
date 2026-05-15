@@ -8,6 +8,7 @@ MCP servers in one repo:
 - `recruitee-mcp`: hiring workflow tools for roles, candidates, stages, and publish URLs
 - `candidate-intelligence-mcp`: resume-to-role matching (single + batch) with built-in mini-graph scoring and evidence
 - `docusign-mcp`: send signature envelopes, track status, list candidate-linked envelopes, and fetch completed document references
+- `pandadoc-mcp`: PandaDoc workflows for templates/documents (list templates, create from template, inspect status/details, send)
 
 ## One-command deploy
 
@@ -23,6 +24,7 @@ This builds and starts all services via Docker Compose.
 - Recruitee MCP: `http://localhost:8014`
 - Candidate Intelligence MCP: `http://localhost:8015`
 - DocuSign MCP: `http://localhost:8016`
+- PandaDoc MCP: `http://localhost:8017`
 - Streamable HTTP MCP endpoints:
   - `http://localhost:8011/mcp`
   - `http://localhost:8012/mcp`
@@ -30,6 +32,7 @@ This builds and starts all services via Docker Compose.
   - `http://localhost:8014/mcp`
   - `http://localhost:8015/mcp`
   - `http://localhost:8016/mcp`
+  - `http://localhost:8017/mcp`
 - SSE fallback endpoints:
   - `http://localhost:8011/sse`
   - `http://localhost:8012/sse`
@@ -37,6 +40,7 @@ This builds and starts all services via Docker Compose.
   - `http://localhost:8014/sse`
   - `http://localhost:8015/sse`
   - `http://localhost:8016/sse`
+  - `http://localhost:8017/sse`
 
 ## Notes
 

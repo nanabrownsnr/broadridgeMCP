@@ -59,3 +59,12 @@ services:
       - ./docusign-mcp/.env
     ports:
       - "8016:8000"
+
+  pandadoc-mcp:
+    restart: unless-stopped
+    build:
+      context: ./pandadoc-mcp
+    env_file:
+      - ./pandadoc-mcp/.env
+    ports:
+      - "8017:8000"
