@@ -28,7 +28,7 @@ class CreateDocumentFromTemplateRequest(BaseModel):
 class DocumentDetailsRequest(BaseModel):
     document_id: str = Field(..., min_length=1)
     include_review_session: bool = Field(
-        default=False,
+        default=True,
         description="If true, also request an embedded editing session for draft review.",
     )
     review_session_email: EmailStr | None = Field(

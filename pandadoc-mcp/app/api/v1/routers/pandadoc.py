@@ -202,21 +202,33 @@ async def get_document_details(
         signing_url = signing_url or links.get("recipient_view") or links.get("sign")
 
     review_session: dict | None = None
+    review_session_email_used: str | None = None
+    review_session_error: str | None = None
     if payload.include_review_session:
-        if not payload.review_session_email:
-            raise HTTPException(
-                status_code=400,
-                detail="review_session_email is required when include_review_session=true",
+        derived_email = payload.review_session_email
+        if not derived_email:
+            recs = data.get("recipients")
+            if isinstance(recs, list):
+                for rec in recs:
+                    if isinstance(rec, dict) and rec.get("email"):
+                        derived_email = rec["email"]
+                        break
+        if not derived_email:
+            review_session_error = (
+                "include_review_session=true but no email could be derived. "
+                "Pass review_session_email explicitly."
             )
-        review_session = await _request(
-            "POST",
-            f"/public/v1/documents/{payload.document_id}/editing-sessions",
-            token,
-            json_body={
-                "email": payload.review_session_email,
-                "lifetime": payload.review_session_lifetime,
-            },
-        )
+        else:
+            review_session_email_used = derived_email
+            review_session = await _request(
+                "POST",
+                f"/public/v1/documents/{payload.document_id}/editing-sessions",
+                token,
+                json_body={
+                    "email": derived_email,
+                    "lifetime": payload.review_session_lifetime,
+                },
+            )
 
     signing_session: dict | None = None
     if payload.include_signing_session:
@@ -253,6 +265,8 @@ async def get_document_details(
         "preview_url": preview_url,
         "signing_url": signing_url,
         "review_session": review_session,
+        "review_session_email_used": review_session_email_used,
+        "review_session_error": review_session_error,
         "signing_session": signing_session,
         "raw": data,
     }
