@@ -122,6 +122,26 @@ async def _resolve_bearer_token(platform_client: PlatformIntegrationClient | Non
     )
 
 
+def _resolve_token_mode_candidates(platform_client: PlatformIntegrationClient | None = None) -> list[tuple[str, str]]:
+    """
+    Resolve token-mode auth candidates in priority order (`pis`, then `env`) and de-duplicate values.
+    """
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    if platform_client is not None:
+        try:
+            token = platform_client.get_access_key(settings.DOCUSIGN_KEY_SERVICE_NAME)
+            if token and token not in seen:
+                candidates.append(("pis", token))
+                seen.add(token)
+        except Exception:
+            pass
+    if settings.DOCUSIGN_ACCESS_TOKEN and settings.DOCUSIGN_ACCESS_TOKEN not in seen:
+        candidates.append(("env", settings.DOCUSIGN_ACCESS_TOKEN))
+        seen.add(settings.DOCUSIGN_ACCESS_TOKEN)
+    return candidates
+
+
 def _base_rest_url() -> str:
     if not settings.DOCUSIGN_BASE_URL or not settings.DOCUSIGN_ACCOUNT_ID:
         raise HTTPException(status_code=500, detail="DOCUSIGN_BASE_URL and DOCUSIGN_ACCOUNT_ID are required")
@@ -141,6 +161,48 @@ async def _api_request(method: str, path: str, token: str, json_body: dict | Non
     if not response.text:
         return {}
     return response.json()
+
+
+async def _api_request_with_failover(
+    method: str,
+    path: str,
+    platform_client: PlatformIntegrationClient | None = None,
+    json_body: dict | None = None,
+) -> dict:
+    """
+    Execute DocuSign API request with auth failover behavior.
+
+    - JWT mode: uses minted JWT access token only.
+    - Token mode: tries PIS token first, then env token on 401/403.
+    """
+    if settings.DOCUSIGN_AUTH_MODE.strip().lower() == "jwt":
+        token = await _resolve_bearer_token(platform_client)
+        return await _api_request(method, path, token, json_body=json_body)
+
+    token_candidates = _resolve_token_mode_candidates(platform_client)
+    if not token_candidates:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "DocuSign token mode missing credentials. Provide via Platform Integration "
+                f"service='{settings.DOCUSIGN_KEY_SERVICE_NAME}' or DOCUSIGN_ACCESS_TOKEN env."
+            ),
+        )
+
+    failures: list[str] = []
+    for idx, (source, token) in enumerate(token_candidates):
+        try:
+            return await _api_request(method, path, token, json_body=json_body)
+        except HTTPException as ex:
+            if ex.status_code in (401, 403) and idx < len(token_candidates) - 1:
+                failures.append(f"{source}:{ex.status_code}")
+                continue
+            if failures:
+                raise HTTPException(
+                    status_code=ex.status_code,
+                    detail=f"{ex.detail} | auth_attempts={','.join(failures + [f'{source}:{ex.status_code}'])}",
+                )
+            raise
 
 
 def _index_envelope(candidate_id: str, envelope_id: str, recipient_email: str, client_id: str | None) -> None:
@@ -170,7 +232,6 @@ async def send_envelope_from_template(
     2. Caller has `template_id`, recipient email/name, and template `role_name`.
     3. Envelope must be indexed by `candidate_id` (and optional `client_id`) for later retrieval.
     """
-    token = await _resolve_bearer_token(platform_client)
     text_custom_fields = [{"name": "candidate_id", "value": payload.candidate_id, "show": "false"}]
     if payload.client_id:
         text_custom_fields.append({"name": "client_id", "value": payload.client_id, "show": "false"})
@@ -192,7 +253,7 @@ async def send_envelope_from_template(
     if payload.message:
         envelope_definition["emailBlurb"] = payload.message
 
-    data = await _api_request("POST", "/envelopes", token, envelope_definition)
+    data = await _api_request_with_failover("POST", "/envelopes", platform_client, envelope_definition)
     envelope_id = data.get("envelopeId")
     if not envelope_id:
         raise HTTPException(status_code=500, detail="DocuSign response missing envelopeId")
@@ -212,8 +273,7 @@ async def get_envelope_status(
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
     """Get current envelope lifecycle status by `envelope_id`."""
-    token = await _resolve_bearer_token(platform_client)
-    data = await _api_request("GET", f"/envelopes/{payload.envelope_id}", token)
+    data = await _api_request_with_failover("GET", f"/envelopes/{payload.envelope_id}", platform_client)
     return {
         "envelope_id": payload.envelope_id,
         "status": data.get("status"),
@@ -237,12 +297,11 @@ async def list_candidate_envelopes(
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
     results: list[dict[str, Any]] = []
 
-    token = await _resolve_bearer_token(platform_client) if payload.include_status_lookup else None
     for envelope_id in envelope_ids:
         item = {"envelope_id": envelope_id, **store.get("envelopes", {}).get(envelope_id, {})}
-        if payload.include_status_lookup and token:
+        if payload.include_status_lookup:
             try:
-                status = await _api_request("GET", f"/envelopes/{envelope_id}", token)
+                status = await _api_request_with_failover("GET", f"/envelopes/{envelope_id}", platform_client)
                 item["status"] = status.get("status")
                 item["completed_date_time"] = status.get("completedDateTime")
             except Exception as ex:
@@ -264,15 +323,14 @@ async def get_completed_documents(
     """
     store = _load_store()
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
-    token = await _resolve_bearer_token(platform_client)
     docs: list[dict[str, Any]] = []
 
     for envelope_id in envelope_ids:
-        env = await _api_request("GET", f"/envelopes/{envelope_id}", token)
+        env = await _api_request_with_failover("GET", f"/envelopes/{envelope_id}", platform_client)
         status = (env.get("status") or "").lower()
         if payload.completed_only and status != "completed":
             continue
-        listing = await _api_request("GET", f"/envelopes/{envelope_id}/documents", token)
+        listing = await _api_request_with_failover("GET", f"/envelopes/{envelope_id}/documents", platform_client)
         for d in listing.get("envelopeDocuments", []):
             doc_id = d.get("documentId")
             if not doc_id:
@@ -302,14 +360,13 @@ async def list_templates(
 
     Use this tool first to discover `template_id` values for `docusign_send_envelope_from_template`.
     """
-    token = await _resolve_bearer_token(platform_client)
     qs: list[str] = [f"count={payload.count}"]
     if payload.search_text:
         qs.append(f"search_text={payload.search_text}")
     if payload.include_recipients:
         qs.append("include=recipients")
     query = "&".join(qs)
-    data = await _api_request("GET", f"/templates?{query}", token)
+    data = await _api_request_with_failover("GET", f"/templates?{query}", platform_client)
 
     items: list[dict[str, Any]] = []
     for t in data.get("envelopeTemplates", []):
@@ -338,7 +395,6 @@ async def get_template_details(
 
     Use to validate role names before sending from template.
     """
-    token = await _resolve_bearer_token(platform_client)
     include_parts: list[str] = []
     if payload.include_documents:
         include_parts.append("documents")
@@ -348,7 +404,7 @@ async def get_template_details(
     path = f"/templates/{payload.template_id}"
     if include_parts:
         path = f"{path}?include={','.join(include_parts)}"
-    data = await _api_request("GET", path, token)
+    data = await _api_request_with_failover("GET", path, platform_client)
     return {
         "template_id": data.get("templateId") or payload.template_id,
         "name": data.get("name"),

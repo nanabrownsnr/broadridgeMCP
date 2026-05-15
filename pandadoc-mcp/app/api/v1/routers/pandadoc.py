@@ -14,17 +14,27 @@ from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter(prefix="/pandadoc", tags=["pandadoc"])
 
 
-def _resolve_bearer_token(platform_client: PlatformIntegrationClient | None = None) -> str:
+def _resolve_bearer_token_candidates(platform_client: PlatformIntegrationClient | None = None) -> list[tuple[str, str]]:
+    """
+    Resolve auth token candidates in priority order and de-duplicate values.
+    """
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
     if platform_client is not None:
         try:
             token = platform_client.get_access_key(settings.PANDADOC_KEY_SERVICE_NAME)
-            if token:
-                return token
+            if token and token not in seen:
+                candidates.append(("pis", token))
+                seen.add(token)
         except Exception:
             pass
 
-    if settings.PANDADOC_API_KEY:
-        return settings.PANDADOC_API_KEY
+    if settings.PANDADOC_API_KEY and settings.PANDADOC_API_KEY not in seen:
+        candidates.append(("env", settings.PANDADOC_API_KEY))
+        seen.add(settings.PANDADOC_API_KEY)
+
+    if candidates:
+        return candidates
 
     raise HTTPException(
         status_code=500,
@@ -60,19 +70,47 @@ async def _request(
     return response.json()
 
 
+async def _request_with_failover(
+    method: str,
+    path: str,
+    token_candidates: list[tuple[str, str]],
+    json_body: dict | None = None,
+    params: dict | None = None,
+) -> dict:
+    """
+    Execute PandaDoc request with auth failover.
+
+    If the PIS token yields 401/403, retries with env token when available.
+    """
+    failures: list[str] = []
+    for idx, (source, token) in enumerate(token_candidates):
+        try:
+            return await _request(method, path, token, json_body=json_body, params=params)
+        except HTTPException as ex:
+            if ex.status_code in (401, 403) and idx < len(token_candidates) - 1:
+                failures.append(f"{source}:{ex.status_code}")
+                continue
+            if failures:
+                raise HTTPException(
+                    status_code=ex.status_code,
+                    detail=f"{ex.detail} | auth_attempts={','.join(failures + [f'{source}:{ex.status_code}'])}",
+                )
+            raise
+
+
 @router.post("/list_templates", operation_id="pandadoc_list_templates")
 async def list_templates(
     payload: ListTemplatesRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
     """List PandaDoc templates with optional query/tag filters."""
-    token = _resolve_bearer_token(platform_client)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
     params: dict = {"count": payload.count, "page": payload.page}
     if payload.q:
         params["q"] = payload.q
     if payload.tag:
         params["tag"] = payload.tag
-    data = await _request("GET", "/public/v1/templates", token, params=params)
+    data = await _request_with_failover("GET", "/public/v1/templates", token_candidates, params=params)
 
     results = []
     for t in data.get("results", []):
@@ -105,7 +143,7 @@ async def create_document_from_template(
 
     Note: creation is asynchronous; use get_document_details until status reaches document.draft.
     """
-    token = _resolve_bearer_token(platform_client)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
     body: dict = {
         "name": payload.name,
         "template_uuid": payload.template_uuid,
@@ -120,7 +158,7 @@ async def create_document_from_template(
     if payload.parse_form_fields is not None:
         body["parse_form_fields"] = payload.parse_form_fields
 
-    data = await _request("POST", "/public/v1/documents", token, json_body=body)
+    data = await _request_with_failover("POST", "/public/v1/documents", token_candidates, json_body=body)
     return {
         "document_id": data.get("id") or data.get("uuid"),
         "name": data.get("name"),
@@ -140,7 +178,7 @@ async def get_template_details(
 
     The router tries a couple of PandaDoc template detail endpoints for compatibility across API variants.
     """
-    token = _resolve_bearer_token(platform_client)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
     tried: list[str] = []
     data: dict | None = None
 
@@ -152,7 +190,7 @@ async def get_template_details(
     for path in candidates:
         tried.append(path)
         try:
-            data = await _request("GET", path, token)
+            data = await _request_with_failover("GET", path, token_candidates)
             break
         except HTTPException as ex:
             last_error = ex
@@ -185,8 +223,8 @@ async def get_document_details(
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
     """Get PandaDoc rich document details and optionally generate review/signing session URLs."""
-    token = _resolve_bearer_token(platform_client)
-    data = await _request("GET", f"/public/v1/documents/{payload.document_id}/details", token)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
+    data = await _request_with_failover("GET", f"/public/v1/documents/{payload.document_id}/details", token_candidates)
     # Surface common URLs when present in PandaDoc response variants.
     document_url = data.get("document_url") or data.get("url")
     preview_url = None
@@ -220,10 +258,10 @@ async def get_document_details(
             )
         else:
             review_session_email_used = derived_email
-            review_session = await _request(
+            review_session = await _request_with_failover(
                 "POST",
                 f"/public/v1/documents/{payload.document_id}/editing-sessions",
-                token,
+                token_candidates,
                 json_body={
                     "email": derived_email,
                     "lifetime": payload.review_session_lifetime,
@@ -237,10 +275,10 @@ async def get_document_details(
                 status_code=400,
                 detail="signing_recipient_email is required when include_signing_session=true",
             )
-        signing_session = await _request(
+        signing_session = await _request_with_failover(
             "POST",
             f"/public/v1/documents/{payload.document_id}/session",
-            token,
+            token_candidates,
             json_body={
                 "recipient": payload.signing_recipient_email,
                 "lifetime": payload.signing_session_lifetime,
@@ -278,13 +316,13 @@ async def send_document(
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
     """Send a PandaDoc document for signing."""
-    token = _resolve_bearer_token(platform_client)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
     body: dict = {"silent": payload.silent}
     if payload.subject:
         body["subject"] = payload.subject
     if payload.message:
         body["message"] = payload.message
-    data = await _request("POST", f"/public/v1/documents/{payload.document_id}/send", token, json_body=body)
+    data = await _request_with_failover("POST", f"/public/v1/documents/{payload.document_id}/send", token_candidates, json_body=body)
     return {"document_id": payload.document_id, "result": data}
 
 
@@ -294,14 +332,14 @@ async def list_documents(
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
     """List PandaDoc documents with optional search/status filters."""
-    token = _resolve_bearer_token(platform_client)
+    token_candidates = _resolve_bearer_token_candidates(platform_client)
     params: dict = {"count": payload.count, "page": payload.page}
     if payload.q:
         params["q"] = payload.q
     if payload.status:
         params["status"] = payload.status
 
-    data = await _request("GET", "/public/v1/documents", token, params=params)
+    data = await _request_with_failover("GET", "/public/v1/documents", token_candidates, params=params)
     rows = []
     for d in data.get("results", []):
         rows.append(
