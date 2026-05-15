@@ -162,6 +162,14 @@ async def send_envelope_from_template(
     payload: SendEnvelopeFromTemplateRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """
+    Send a DocuSign envelope from an existing template.
+
+    Use when:
+    1. Templates are managed in DocuSign UI.
+    2. Caller has `template_id`, recipient email/name, and template `role_name`.
+    3. Envelope must be indexed by `candidate_id` (and optional `client_id`) for later retrieval.
+    """
     token = await _resolve_bearer_token(platform_client)
     text_custom_fields = [{"name": "candidate_id", "value": payload.candidate_id, "show": "false"}]
     if payload.client_id:
@@ -203,6 +211,7 @@ async def get_envelope_status(
     payload: EnvelopeStatusRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """Get current envelope lifecycle status by `envelope_id`."""
     token = await _resolve_bearer_token(platform_client)
     data = await _api_request("GET", f"/envelopes/{payload.envelope_id}", token)
     return {
@@ -219,6 +228,11 @@ async def list_candidate_envelopes(
     payload: ListCandidateEnvelopesRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """
+    List envelopes linked to `candidate_id` from the local envelope index.
+
+    Use this before status/document fetches to discover envelope IDs for a candidate.
+    """
     store = _load_store()
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
     results: list[dict[str, Any]] = []
@@ -242,6 +256,12 @@ async def get_completed_documents(
     payload: CompletedDocumentsRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """
+    Return completed-envelope document references for a candidate.
+
+    Output contains DocuSign document API download paths (`document_download_path`)
+    for each matched envelope document.
+    """
     store = _load_store()
     envelope_ids = store.get("candidate_index", {}).get(payload.candidate_id, [])
     token = await _resolve_bearer_token(platform_client)
@@ -277,6 +297,11 @@ async def list_templates(
     payload: ListTemplatesRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """
+    List templates in the connected DocuSign account.
+
+    Use this tool first to discover `template_id` values for `docusign_send_envelope_from_template`.
+    """
     token = await _resolve_bearer_token(platform_client)
     qs: list[str] = [f"count={payload.count}"]
     if payload.search_text:
@@ -308,6 +333,11 @@ async def get_template_details(
     payload: TemplateDetailsRequest,
     platform_client: PlatformIntegrationClient = Depends(get_platform_client),
 ) -> dict:
+    """
+    Fetch template metadata and optional recipients/documents for a specific `template_id`.
+
+    Use to validate role names before sending from template.
+    """
     token = await _resolve_bearer_token(platform_client)
     include_parts: list[str] = []
     if payload.include_documents:
@@ -336,6 +366,7 @@ async def get_template_details(
 
 @router.get("/model_info", operation_id="docusign_model_info")
 async def model_info() -> dict:
+    """Return DocuSign MCP config/auth behavior for diagnostics."""
     return {
         "service": "docusign_mcp",
         "api_base": settings.DOCUSIGN_BASE_URL,
