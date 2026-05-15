@@ -106,7 +106,9 @@ export function createServer(): McpServer {
               ui: {
                 prefersBorder: true,
                 csp: {
-                  connectDomains: [RECRUITEE_MCP_BASE_URL],
+                  // Bridge-only UI mode: browser iframe should not call internal Docker hosts.
+                  // All data actions go through MCP tool calls on the host bridge.
+                  connectDomains: [],
                   resourceDomains: [],
                 },
               },
@@ -133,7 +135,9 @@ export function createServer(): McpServer {
               ui: {
                 prefersBorder: true,
                 csp: {
-                  connectDomains: [RECRUITEE_MCP_BASE_URL],
+                  // Bridge-only UI mode: browser iframe should not call internal Docker hosts.
+                  // All data actions go through MCP tool calls on the host bridge.
+                  connectDomains: [],
                   resourceDomains: [],
                 },
               },
