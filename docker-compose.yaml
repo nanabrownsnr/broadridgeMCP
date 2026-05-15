@@ -39,8 +39,6 @@ services:
       context: ./recruitee-mcp
     env_file:
       - ./recruitee-mcp/.env
-    ports:
-      - "8014:8000"
 
   candidate-intelligence-mcp:
     restart: unless-stopped
@@ -68,3 +66,12 @@ services:
       - ./pandadoc-mcp/.env
     ports:
       - "8017:8000"
+
+  recruitee-apps-mcp:
+    restart: unless-stopped
+    build:
+      context: ./recruitee-apps-mcp
+    env_file:
+      - ./recruitee-apps-mcp/.env
+    ports:
+      - "8014:8018"
