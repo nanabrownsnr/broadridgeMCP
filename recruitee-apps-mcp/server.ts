@@ -3,6 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+type JsonSchema = Record<string, unknown>;
+
 const DIST_DIR = path.join(import.meta.dirname, "dist");
 const RESOURCE_URI = "ui://recruitee/app.html";
 const RECRUITEE_MCP_BASE_URL = process.env.RECRUITEE_MCP_BASE_URL ?? "http://recruitee-mcp:8000";
@@ -14,151 +16,77 @@ async function callRecruiteeApi(pathname: string, method: "GET" | "POST", body?:
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const rawText = await response.text();
+
+  const text = await response.text();
   let data: unknown;
   try {
-    data = rawText ? JSON.parse(rawText) : {};
+    data = text ? JSON.parse(text) : {};
   } catch {
-    data = { raw: rawText };
+    data = { raw: text };
   }
+
   if (!response.ok) {
-    throw new Error(`Recruitee API error (${response.status}): ${rawText}`);
+    throw new Error(`Recruitee API error (${response.status}): ${text}`);
   }
+
   return data;
 }
 
-function toErrorResult(message: string) {
-  return {
-    content: [{ type: "text" as const, text: message }],
-    isError: true,
-  };
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
+function addProxyTool(
+  server: McpServer,
+  cfg: {
+    name: string;
+    description: string;
+    method: "GET" | "POST";
+    path: string;
+    inputSchema?: JsonSchema;
+    visibility?: Array<"model" | "app">;
+    withUi?: boolean;
+    mapArgsToPath?: (args: Record<string, unknown>) => string;
+    mapArgsToBody?: (args: Record<string, unknown>) => unknown;
+    mapResult?: (result: unknown) => unknown;
+  },
+) {
+  const metaUi: Record<string, unknown> = { visibility: cfg.visibility ?? ["model", "app"] };
+  if (cfg.withUi) {
+    metaUi.resourceUri = RESOURCE_URI;
+  }
+
+  registerAppTool(
+    server,
+    cfg.name,
+    {
+      title: cfg.name,
+      description: cfg.description,
+      inputSchema: cfg.inputSchema ?? { type: "object", properties: {}, additionalProperties: false },
+      _meta: { ui: metaUi },
+    },
+    async (rawArgs) => {
+      try {
+        const args = (rawArgs ?? {}) as Record<string, unknown>;
+        const path = cfg.mapArgsToPath ? cfg.mapArgsToPath(args) : cfg.path;
+        const body = cfg.method === "POST" ? (cfg.mapArgsToBody ? cfg.mapArgsToBody(args) : args) : undefined;
+        const data = await callRecruiteeApi(path, cfg.method, body);
+        const mapped = cfg.mapResult ? cfg.mapResult(data) : data;
+        return {
+          content: [{ type: "text", text: `${cfg.name} executed successfully.` }],
+          structuredContent: mapped,
+        };
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : `Unknown error in ${cfg.name}`);
+      }
+    },
+  );
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({
-    name: "Recruitee Apps MCP",
-    version: "0.1.0",
-  });
+  const server = new McpServer({ name: "Recruitee Unified MCP", version: "0.3.0" });
 
-  registerAppTool(
-    server,
-    "recruitee_openings_explorer",
-    {
-      title: "Recruitee Openings Explorer",
-      description: "Returns Recruitee job openings for the interactive openings view.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          include_raw: { type: "boolean", default: false },
-        },
-        additionalProperties: false,
-      },
-      _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] } },
-    },
-    async (args) => {
-      try {
-        const includeRaw = !!(args as { include_raw?: boolean }).include_raw;
-        const data = await callRecruiteeApi("/api/v1/recruitee/list_job_openings?include_raw=false", "GET");
-        return {
-          content: [{ type: "text", text: "Openings loaded. Render openings_explorer view." }],
-          structuredContent: {
-            view: "openings_explorer",
-            include_raw: includeRaw,
-            data,
-          },
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error loading openings.";
-        return toErrorResult(`Failed to load openings: ${message}`);
-      }
-    },
-  );
-
-  registerAppTool(
-    server,
-    "recruitee_pipeline_kanban",
-    {
-      title: "Recruitee Pipeline Kanban",
-      description: "Returns candidates and stage metadata for an offer as an interactive kanban board.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          offer_id: { type: "integer" },
-          limit: { type: "integer", default: 50 },
-          page: { type: "integer", default: 1 },
-        },
-        required: ["offer_id"],
-        additionalProperties: false,
-      },
-      _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] } },
-    },
-    async (args) => {
-      try {
-        const { offer_id, limit = 50, page = 1 } = args as { offer_id: number; limit?: number; page?: number };
-        const stages = await callRecruiteeApi("/api/v1/recruitee/list_offer_stages", "POST", {
-          offer_id,
-          include_raw: false,
-        });
-        const candidates = await callRecruiteeApi("/api/v1/recruitee/list_candidates", "POST", {
-          offer_id,
-          limit,
-          page,
-          include_raw: false,
-        });
-        return {
-          content: [{ type: "text", text: `Pipeline loaded for offer ${offer_id}. Render pipeline_kanban view.` }],
-          structuredContent: {
-            view: "pipeline_kanban",
-            data: {
-              offer_id,
-              stages,
-              candidates,
-            },
-          },
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error loading pipeline.";
-        return toErrorResult(`Failed to load pipeline: ${message}`);
-      }
-    },
-  );
-
-  registerAppTool(
-    server,
-    "recruitee_move_candidate_stage_action",
-    {
-      title: "Move Candidate Stage",
-      description: "App action tool to move a candidate to a different stage.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          candidate_id: { type: "integer" },
-          offer_id: { type: "integer" },
-          stage_id: { type: "integer" },
-        },
-        required: ["candidate_id", "offer_id", "stage_id"],
-        additionalProperties: false,
-      },
-      _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["app"] } },
-    },
-    async (args) => {
-      try {
-        const payload = args as { candidate_id: number; offer_id: number; stage_id: number };
-        const data = await callRecruiteeApi("/api/v1/recruitee/move_candidate_stage", "POST", payload);
-        return {
-          content: [{ type: "text", text: "Candidate stage updated." }],
-          structuredContent: {
-            view: "pipeline_kanban",
-            action_result: data,
-          },
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error moving candidate stage.";
-        return toErrorResult(`Failed to move candidate stage: ${message}`);
-      }
-    },
-  );
-
+  // UI resource used by the two interactive views.
   registerAppResource(
     server,
     RESOURCE_URI,
@@ -186,6 +114,197 @@ export function createServer(): McpServer {
       };
     },
   );
+
+  // View 1: openings explorer
+  addProxyTool(server, {
+    name: "recruitee_list_job_openings",
+    description: "List Recruitee openings for openings explorer view.",
+    method: "GET",
+    path: "/api/v1/recruitee/list_job_openings?include_raw=false",
+    inputSchema: {
+      type: "object",
+      properties: { include_raw: { type: "boolean", default: false } },
+      additionalProperties: false,
+    },
+    withUi: true,
+    mapResult: (data) => ({ view: "openings_explorer", data }),
+  });
+
+  // View 2: pipeline kanban
+  addProxyTool(server, {
+    name: "recruitee_list_candidates",
+    description: "List candidates; use offer_id for pipeline kanban view.",
+    method: "POST",
+    path: "/api/v1/recruitee/list_candidates",
+    inputSchema: {
+      type: "object",
+      properties: {
+        offer_id: { type: "integer" },
+        stage_id: { type: "integer" },
+        limit: { type: "integer", default: 50 },
+        page: { type: "integer", default: 1 },
+        include_raw: { type: "boolean", default: false },
+      },
+      additionalProperties: false,
+    },
+    withUi: true,
+    mapResult: (data) => ({ view: "pipeline_kanban", data }),
+  });
+
+  // App-only action from kanban drag/drop
+  addProxyTool(server, {
+    name: "recruitee_move_candidate_stage",
+    description: "Move candidate to a new stage.",
+    method: "POST",
+    path: "/api/v1/recruitee/move_candidate_stage",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidate_id: { type: "integer" },
+        offer_id: { type: "integer" },
+        stage_id: { type: "integer" },
+      },
+      required: ["candidate_id", "offer_id", "stage_id"],
+      additionalProperties: false,
+    },
+    visibility: ["app"],
+    withUi: true,
+    mapResult: (data) => ({ view: "pipeline_kanban", action_result: data }),
+  });
+
+  // Remaining existing tools (non-UI tools, still on same endpoint)
+  addProxyTool(server, {
+    name: "recruitee_create_job_offer",
+    description: "Create a Recruitee job offer.",
+    method: "POST",
+    path: "/api/v1/recruitee/create_job_offer",
+    inputSchema: { type: "object", additionalProperties: true },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_publish_job",
+    description: "Publish an existing Recruitee job.",
+    method: "POST",
+    path: "/api/v1/recruitee/publish_job",
+    inputSchema: {
+      type: "object",
+      properties: { offer_id: { type: "integer" } },
+      required: ["offer_id"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_get_job_public_url",
+    description: "Get public apply URL for an offer.",
+    method: "POST",
+    path: "/api/v1/recruitee/get_job_public_url",
+    inputSchema: {
+      type: "object",
+      properties: {
+        offer_id: { type: "integer" },
+        include_raw_offer: { type: "boolean", default: false },
+      },
+      required: ["offer_id"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_list_offer_stages",
+    description: "List stages for an offer pipeline.",
+    method: "POST",
+    path: "/api/v1/recruitee/list_offer_stages",
+    inputSchema: {
+      type: "object",
+      properties: {
+        offer_id: { type: "integer" },
+        include_raw: { type: "boolean", default: false },
+      },
+      required: ["offer_id"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_get_candidate_resume_source",
+    description: "Get one candidate resume source payload.",
+    method: "POST",
+    path: "/api/v1/recruitee/get_candidate_resume_source",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidate_id: { type: "integer" },
+        include_raw_candidate: { type: "boolean", default: false },
+      },
+      required: ["candidate_id"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_get_candidates_resume_sources",
+    description: "Batch resume source resolution for candidate IDs.",
+    method: "POST",
+    path: "/api/v1/recruitee/get_candidates_resume_sources",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidate_ids: { type: "array", items: { type: "integer" } },
+        include_raw_candidate: { type: "boolean", default: false },
+      },
+      required: ["candidate_ids"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_build_batch_matching_input",
+    description: "Build batch matching payload for Candidate Intelligence.",
+    method: "POST",
+    path: "/api/v1/recruitee/build_batch_matching_input",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidate_ids: { type: "array", items: { type: "integer" } },
+        include_raw_candidate: { type: "boolean", default: false },
+      },
+      required: ["candidate_ids"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_register_webhook",
+    description: "Register Recruitee webhook.",
+    method: "POST",
+    path: "/api/v1/recruitee/register_webhook",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target_url: { type: "string" },
+        event_type: { type: "string" },
+      },
+      required: ["target_url", "event_type"],
+      additionalProperties: false,
+    },
+    visibility: ["model", "app"],
+  });
+
+  addProxyTool(server, {
+    name: "recruitee_model_info",
+    description: "Return Recruitee MCP configuration info.",
+    method: "GET",
+    path: "/api/v1/recruitee/model_info",
+    visibility: ["model", "app"],
+  });
 
   return server;
 }

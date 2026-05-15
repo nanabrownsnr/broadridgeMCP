@@ -39,8 +39,6 @@ services:
       context: ./recruitee-mcp
     env_file:
       - ./recruitee-mcp/.env
-    ports:
-      - "8014:8000"
 
   candidate-intelligence-mcp:
     restart: unless-stopped
@@ -76,4 +74,4 @@ services:
     env_file:
       - ./recruitee-apps-mcp/.env
     ports:
-      - "8018:8018"
+      - "8014:8018"

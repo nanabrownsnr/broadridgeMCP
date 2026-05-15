@@ -3,14 +3,18 @@
 Standalone MCP Apps server for Recruitee.
 
 ## What it does
+- Exposes a single public MCP endpoint for Recruitee UI usage.
 - Registers MCP App tools with `_meta.ui.resourceUri`.
 - Registers a real `ui://recruitee/app.html` resource (`text/html;profile=mcp-app`).
-- Proxies data calls to existing `recruitee-mcp` HTTP API.
+- Proxies calls to existing internal `recruitee-mcp` HTTP API.
 
 ## Tools
-- `recruitee_openings_explorer`
-- `recruitee_pipeline_kanban`
-- `recruitee_move_candidate_stage_action` (app-only)
+- Exposes all existing `recruitee_*` tools through one endpoint (proxy to internal `recruitee-mcp` API).
+- Two tools are UI-enabled:
+  - `recruitee_list_job_openings` (UI view: openings explorer)
+  - `recruitee_list_candidates` (UI view: pipeline kanban)
+- App-only drag/drop action:
+  - `recruitee_move_candidate_stage` (`visibility: ["app"]`)
 
 ## Run
 ```bash
@@ -19,11 +23,11 @@ npm run start:prod
 ```
 
 Server endpoint:
-- `http://localhost:8018/mcp`
+- `http://localhost:8014/mcp` (public via docker-compose)
 
 Environment:
 - `RECRUITEE_MCP_BASE_URL` default `http://recruitee-mcp:8000`
-- `PORT` default `8018`
+- `PORT` default `8018` (container port; compose maps it to host `8014`)
 
 ## Skill-Compliance Notes
 - Uses `registerAppTool` + `registerAppResource`.
