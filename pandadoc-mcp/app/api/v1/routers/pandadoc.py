@@ -7,6 +7,7 @@ from app.schemas.pandadoc import (
     ListDocumentsRequest,
     ListTemplatesRequest,
     SendDocumentRequest,
+    TemplateDetailsRequest,
 )
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -125,6 +126,55 @@ async def create_document_from_template(
         "name": data.get("name"),
         "status": data.get("status"),
         "date_created": data.get("date_created"),
+        "raw": data,
+    }
+
+
+@router.post("/get_template_details", operation_id="pandadoc_get_template_details")
+async def get_template_details(
+    payload: TemplateDetailsRequest,
+    platform_client: PlatformIntegrationClient = Depends(get_platform_client),
+) -> dict:
+    """
+    Get template details to discover recipient roles and available template structure before document creation.
+
+    The router tries a couple of PandaDoc template detail endpoints for compatibility across API variants.
+    """
+    token = _resolve_bearer_token(platform_client)
+    tried: list[str] = []
+    data: dict | None = None
+
+    candidates = [
+        f"/public/v1/templates/{payload.template_uuid}/details",
+        f"/public/v1/templates/{payload.template_uuid}",
+    ]
+    last_error: HTTPException | None = None
+    for path in candidates:
+        tried.append(path)
+        try:
+            data = await _request("GET", path, token)
+            break
+        except HTTPException as ex:
+            last_error = ex
+            if ex.status_code != 404:
+                raise
+
+    if data is None:
+        if last_error is not None:
+            raise last_error
+        raise HTTPException(status_code=404, detail=f"Template not found. Tried: {tried}")
+
+    recipients = data.get("recipients") or data.get("roles") or []
+    tokens = data.get("tokens") or data.get("fields") or data.get("variables") or []
+    return {
+        "template_uuid": data.get("id") or data.get("uuid") or payload.template_uuid,
+        "name": data.get("name"),
+        "description": data.get("description"),
+        "date_created": data.get("date_created"),
+        "date_modified": data.get("date_modified"),
+        "recipients": recipients,
+        "tokens_or_fields": tokens,
+        "detected_endpoints": tried,
         "raw": data,
     }
 

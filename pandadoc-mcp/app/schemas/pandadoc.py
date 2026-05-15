@@ -41,3 +41,7 @@ class ListDocumentsRequest(BaseModel):
     status: str | None = Field(default=None, description="Optional status filter.")
     count: int = Field(default=50, ge=1, le=100)
     page: int = Field(default=1, ge=1)
+
+
+class TemplateDetailsRequest(BaseModel):
+    template_uuid: str = Field(..., min_length=1, description="PandaDoc template UUID.")
