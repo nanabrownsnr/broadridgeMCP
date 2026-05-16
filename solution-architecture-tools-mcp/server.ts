@@ -72,10 +72,38 @@ function buildDfd(input: {
   data_flows: Array<{ from: string; to: string; label: string }>;
 }): string {
   const lines: string[] = ["flowchart LR"];
-  for (const e of input.external_entities) lines.push(`  ${id("E", e)}[${escape(e)}]`);
-  for (const p of input.processes) lines.push(`  ${id("P", p)}((${escape(p)}))`);
-  for (const d of input.data_stores) lines.push(`  ${id("D", d)}[/${escape(d)}/]`);
-  for (const f of input.data_flows) lines.push(`  ${idAny(f.from)} -->|${escape(f.label)}| ${idAny(f.to)}`);
+  const entityMap = new Map<string, string>();
+  const processMap = new Map<string, string>();
+  const storeMap = new Map<string, string>();
+
+  for (const e of input.external_entities) {
+    const nodeId = id("E", e);
+    entityMap.set(e.toLowerCase(), nodeId);
+    lines.push(`  ${nodeId}[${escape(e)}]`);
+  }
+  for (const p of input.processes) {
+    const nodeId = id("P", p);
+    processMap.set(p.toLowerCase(), nodeId);
+    lines.push(`  ${nodeId}((${escape(p)}))`);
+  }
+  for (const d of input.data_stores) {
+    const nodeId = id("D", d);
+    storeMap.set(d.toLowerCase(), nodeId);
+    lines.push(`  ${nodeId}[/${escape(d)}/]`);
+  }
+
+  const resolveNode = (raw: string): string => {
+    const key = raw.trim().toLowerCase();
+    if (entityMap.has(key)) return entityMap.get(key)!;
+    if (processMap.has(key)) return processMap.get(key)!;
+    if (storeMap.has(key)) return storeMap.get(key)!;
+    if (raw.startsWith("E_") || raw.startsWith("P_") || raw.startsWith("D_")) return safeName(raw);
+    return id("P", raw);
+  };
+
+  for (const f of input.data_flows) {
+    lines.push(`  ${resolveNode(f.from)} -->|${escape(f.label)}| ${resolveNode(f.to)}`);
+  }
   lines.push(`  %% System: ${escape(input.system_name)}`);
   return lines.join("\n");
 }
@@ -160,9 +188,6 @@ function buildUmlUseCase(input: { system_name: string; actors: string[]; use_cas
 
 function id(prefix: string, value: string): string {
   return `${prefix}_${safeName(value)}`;
-}
-function idAny(value: string): string {
-  return value.includes("_") ? safeName(value) : safeName(value);
 }
 function safeName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_]/g, "_");

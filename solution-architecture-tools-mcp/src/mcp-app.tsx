@@ -17,15 +17,24 @@ const app = new App({ name: "Solution Architecture App", version: "0.1.0" });
 function DiagramEditor() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [source, setSource] = useState("");
-  const [editInstructions, setEditInstructions] = useState("Refine labels and improve readability");
+  const [status, setStatus] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [canFullscreen, setCanFullscreen] = useState(false);
+  const [displayMode, setDisplayMode] = useState<string>("inline");
 
   app.ontoolresult = (result) => {
     const p = (result.structuredContent ?? {}) as Payload;
     setPayload(p);
     setSource(p.mermaid_source ?? "");
+    setStatus("");
   };
 
   app.ontoolinput = () => {};
+  app.onhostcontextchanged = (ctx: any) => {
+    const modes = Array.isArray(ctx?.availableDisplayModes) ? ctx.availableDisplayModes : [];
+    setCanFullscreen(modes.includes("fullscreen"));
+    if (ctx?.displayMode) setDisplayMode(ctx.displayMode);
+  };
 
   const svgDataUri = useMemo(() => {
     if (!payload?.svg) return null;
@@ -33,18 +42,19 @@ function DiagramEditor() {
   }, [payload?.svg]);
 
   const onRender = async () => {
-    await app.callServerTool("render_diagram", {
-      diagram_type: payload?.diagram_type ?? "general",
-      mermaid_source: source,
-    });
-  };
-
-  const onEdit = async () => {
-    await app.callServerTool("edit_diagram", {
-      diagram_type: payload?.diagram_type ?? "general",
-      existing_diagram: source,
-      edit_instructions: editInstructions,
-    });
+    try {
+      setBusy(true);
+      setStatus("Rendering SVG preview...");
+      await app.callServerTool("render_diagram", {
+        diagram_type: payload?.diagram_type ?? "general",
+        mermaid_source: source,
+      });
+      setStatus("Preview rendered.");
+    } catch (err: any) {
+      setStatus(`Render failed: ${err?.message ?? "Unknown error"}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (!payload || payload.view !== "diagram_editor") {
@@ -64,9 +74,19 @@ function DiagramEditor() {
           Type: {payload.diagram_type ?? "general"} | Theme: neutral | Output: svg
         </p>
         <div className="actions">
-          <button className="primary" onClick={onRender}>Render SVG</button>
-          <button onClick={onEdit}>Apply Edit</button>
+          <button className="primary" onClick={onRender} disabled={busy}>{busy ? "Rendering..." : "Render SVG"}</button>
+          {canFullscreen ? (
+            <button
+              onClick={async () => {
+                const nextMode = displayMode === "fullscreen" ? "inline" : "fullscreen";
+                await app.requestDisplayMode({ mode: nextMode as any });
+              }}
+            >
+              {displayMode === "fullscreen" ? "Exit Fullscreen" : "Fullscreen"}
+            </button>
+          ) : null}
         </div>
+        {status ? <div className="warn">{status}</div> : null}
         <textarea value={source} onChange={(e) => setSource(e.target.value)} spellCheck={false} />
         <div className="warn">Edits run through server tools to keep chat context and UI state synchronized.</div>
       </section>
@@ -86,10 +106,6 @@ function DiagramEditor() {
           <ul className="rules">
             {(payload.warnings ?? []).length ? (payload.warnings ?? []).map((w, idx) => <li key={idx}>{w}</li>) : <li>None</li>}
           </ul>
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <p className="meta" style={{ marginBottom: 6 }}>Edit Instruction</p>
-          <textarea value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} style={{ minHeight: 90 }} />
         </div>
       </section>
     </div>
