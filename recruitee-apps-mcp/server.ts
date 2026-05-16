@@ -9,6 +9,7 @@ type JsonSchema = Record<string, unknown>;
 const DIST_DIR = path.join(import.meta.dirname, "dist");
 const OPENINGS_RESOURCE_URI = "ui://recruitee/openings.html";
 const PIPELINE_RESOURCE_URI = "ui://recruitee/pipeline.html";
+const VIEWER_RESOURCE_URI = "ui://recruitee/viewer.html";
 const RECRUITEE_MCP_BASE_URL = process.env.RECRUITEE_MCP_BASE_URL ?? "http://recruitee-mcp:8000";
 
 async function callRecruiteeApi(pathname: string, method: "GET" | "POST", body?: unknown) {
@@ -110,6 +111,33 @@ export function createServer(): McpServer {
                 csp: {
                   // Bridge-only UI mode: browser iframe should not call internal Docker hosts.
                   // All data actions go through MCP tool calls on the host bridge.
+                  connectDomains: [],
+                  resourceDomains: [],
+                },
+              },
+            },
+          },
+        ],
+      };
+    },
+  );
+  registerAppResource(
+    server,
+    VIEWER_RESOURCE_URI,
+    VIEWER_RESOURCE_URI,
+    { mimeType: RESOURCE_MIME_TYPE, description: "Recruitee URL/file viewer shell" },
+    async () => {
+      const html = await fs.readFile(path.join(DIST_DIR, "mcp-app.html"), "utf-8");
+      return {
+        contents: [
+          {
+            uri: VIEWER_RESOURCE_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                prefersBorder: true,
+                csp: {
                   connectDomains: [],
                   resourceDomains: [],
                 },
@@ -266,6 +294,23 @@ export function createServer(): McpServer {
       additionalProperties: false,
     },
     visibility: ["model", "app"],
+    uiResourceUri: VIEWER_RESOURCE_URI,
+    mapResult: (data) => {
+      const d = data as any;
+      const items: Array<{ label: string; url: string; type: "url" | "file" }> = [];
+      if (d?.apply_url) items.push({ label: "Apply URL", url: d.apply_url, type: "url" });
+      if (d?.careers_url && d?.careers_url !== d?.apply_url) items.push({ label: "Careers URL", url: d.careers_url, type: "url" });
+      for (const u of d?.url_candidates ?? []) {
+        if (u && !items.some((x) => x.url === u)) items.push({ label: "URL candidate", url: u, type: "url" });
+      }
+      return { view: "url_viewer", title: d?.title ?? "Job Public URL", items, data: d };
+    },
+    mapContentText: (mapped) => {
+      const m = mapped as any;
+      const items = m?.items ?? [];
+      if (!items.length) return "No URL was returned for this offer.";
+      return `Resolved ${items.length} URL(s):\n${items.map((x: any) => `- ${x.label}: ${x.url}`).join("\n")}`;
+    },
   });
 
   addProxyTool(server, {
@@ -300,6 +345,27 @@ export function createServer(): McpServer {
       additionalProperties: false,
     },
     visibility: ["model", "app"],
+    uiResourceUri: VIEWER_RESOURCE_URI,
+    mapResult: (data) => {
+      const d = data as any;
+      const rs = d?.resume_source ?? {};
+      const items: Array<{ label: string; url: string; type: "url" | "file" }> = [];
+      if (rs?.resume_url) items.push({ label: "Resume URL", url: rs.resume_url, type: "file" });
+      if (rs?.cv_url && rs?.cv_url !== rs?.resume_url) items.push({ label: "CV URL", url: rs.cv_url, type: "file" });
+      if (rs?.cv_original_file && rs?.cv_original_file !== rs?.resume_url) items.push({ label: "Original CV File", url: rs.cv_original_file, type: "file" });
+      return {
+        view: "url_viewer",
+        title: rs?.candidate_name ? `Resume - ${rs.candidate_name}` : "Candidate Resume",
+        items,
+        data: d,
+      };
+    },
+    mapContentText: (mapped) => {
+      const m = mapped as any;
+      const items = m?.items ?? [];
+      if (!items.length) return "No resume URL was found for this candidate.";
+      return `Resume links (${items.length}):\n${items.map((x: any) => `- ${x.label}: ${x.url}`).join("\n")}`;
+    },
   });
 
   addProxyTool(server, {
@@ -317,6 +383,30 @@ export function createServer(): McpServer {
       additionalProperties: false,
     },
     visibility: ["model", "app"],
+    uiResourceUri: VIEWER_RESOURCE_URI,
+    mapResult: (data) => {
+      const d = data as any;
+      const items: Array<{ label: string; url: string; type: "url" | "file"; candidate_id?: number }> = [];
+      for (const r of d?.results ?? []) {
+        const rs = r?.resume_source ?? {};
+        const url = rs?.resume_url || rs?.cv_url || rs?.cv_original_file;
+        if (url) {
+          items.push({
+            label: rs?.candidate_name ? `${rs.candidate_name} (${r.candidate_id})` : `Candidate ${r.candidate_id}`,
+            url,
+            type: "file",
+            candidate_id: r?.candidate_id,
+          });
+        }
+      }
+      return { view: "url_viewer", title: "Batch Resume Sources", items, data: d };
+    },
+    mapContentText: (mapped) => {
+      const m = mapped as any;
+      const items = m?.items ?? [];
+      if (!items.length) return "No resume URLs found in this batch.";
+      return `Batch resume links found: ${items.length}`;
+    },
   });
 
   addProxyTool(server, {

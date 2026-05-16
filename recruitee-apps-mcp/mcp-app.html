@@ -214,6 +214,66 @@
         font-size: 12px;
         color: var(--gray-6);
       }
+
+      .viewer-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .viewer-btn {
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 12px;
+        border: 1.5px solid var(--border);
+        background: var(--bg-input);
+        color: var(--gray-3);
+        font-family: "DM Sans", Arial, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+      }
+
+      .viewer-btn:hover {
+        border-color: var(--violet);
+        color: var(--violet);
+        background: var(--violet-light);
+      }
+
+      .viewer-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .viewer-btn-primary {
+        background: var(--violet);
+        color: #fff;
+        border-color: var(--violet);
+      }
+
+      .viewer-btn-primary:hover {
+        background: var(--violet-h);
+        color: #fff;
+        border-color: var(--violet-h);
+      }
+
+      .viewer-frame-wrap {
+        margin-top: 12px;
+        border: 1.5px solid var(--border);
+        border-radius: 14px;
+        background: #fff;
+        overflow: hidden;
+      }
+
+      .viewer-frame {
+        width: 100%;
+        min-height: 560px;
+        border: 0;
+      }
     </style>
   </head>
   <body>

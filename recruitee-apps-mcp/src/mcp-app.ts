@@ -2,6 +2,7 @@ import { App } from "@modelcontextprotocol/ext-apps";
 
 const app = new App({ name: "Recruitee App", version: "0.1.0" });
 const root = document.getElementById("app")!;
+let viewerState: { items: any[]; index: number } = { items: [], index: 0 };
 
 function escapeHtml(value: unknown): string {
   return String(value)
@@ -53,7 +54,7 @@ function renderOpenings(payload: any): string {
 function renderPipeline(payload: any): string {
   const selectedOfferId = payload?.offer_id;
   const candidates = payload?.data?.candidates ?? [];
-  const buckets = new Map<string, Array<{ id: number; name: string; email: string; stageId: number | null }>>();
+  const buckets = new Map<string, { label: string; stageId: number | null; cards: Array<{ id: number; name: string; email: string; stageId: number | null }> }>();
 
   for (const c of candidates) {
     const placements = Array.isArray(c.placements) ? c.placements : [];
@@ -68,7 +69,8 @@ function renderPipeline(payload: any): string {
       placement.stage_name && String(placement.stage_name).trim().length > 0
         ? String(placement.stage_name)
         : null;
-    const stageKey = stageName ?? (stageId != null ? `Stage ${stageId}` : "Unstaged");
+    const stageLabel = stageName ?? (stageId != null ? `Stage ${stageId}` : "Unstaged");
+    const stageKey = `${stageId ?? "none"}::${stageLabel}`;
     const card = {
       id: c.candidate_id,
       name: c.name ?? "Unknown",
@@ -76,15 +78,15 @@ function renderPipeline(payload: any): string {
       stageId,
     };
 
-    if (!buckets.has(stageKey)) buckets.set(stageKey, []);
-    buckets.get(stageKey)!.push(card);
+    if (!buckets.has(stageKey)) buckets.set(stageKey, { label: stageLabel, stageId, cards: [] });
+    buckets.get(stageKey)!.cards.push(card);
   }
 
   const columns = Array.from(buckets.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([stage, cards]) => {
-      const stageId = stage.startsWith("Stage ") ? stage.replace("Stage ", "") : "";
-      const cardsHtml = cards
+    .sort((a, b) => a[1].label.localeCompare(b[1].label))
+    .map(([, stageBucket]) => {
+      const stageIdAttr = stageBucket.stageId != null ? String(stageBucket.stageId) : "";
+      const cardsHtml = stageBucket.cards
         .map(
           (card) => `
           <div class="candidate-card" draggable="true" data-candidate-id="${card.id}" data-stage-id="${card.stageId ?? ""}">
@@ -95,8 +97,8 @@ function renderPipeline(payload: any): string {
         )
         .join("");
       return `
-        <section class="stage-column" data-stage-id="${stageId}">
-          <header class="stage-head">${escapeHtml(stage)} (${cards.length})</header>
+        <section class="stage-column" data-stage-id="${stageIdAttr}">
+          <header class="stage-head">${escapeHtml(stageBucket.label)} (${stageBucket.cards.length})</header>
           <div class="stage-cards">
             ${cardsHtml || `<div class="stage-empty">No candidates</div>`}
           </div>
@@ -115,6 +117,59 @@ function renderPipeline(payload: any): string {
       <div class="kanban-wrap">${columns || "<p>No candidates available for this view.</p>"}</div>
     </section>
   `;
+}
+
+function renderViewer(payload: any): string {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  viewerState = { items, index: 0 };
+  const current = items[0];
+  const title = payload?.title ?? "URL / File Viewer";
+
+  if (!items.length) {
+    return `
+      <section class="panel-card">
+        <div class="panel-head">
+          <h3>${escapeHtml(title)}</h3>
+          <p>No links available.</p>
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel-card">
+      <div class="panel-head">
+        <h3>${escapeHtml(title)}</h3>
+        <p id="viewer-meta">1 of ${items.length} - ${escapeHtml(current.label ?? "Item")}</p>
+      </div>
+      <div class="viewer-actions">
+        <button id="viewer-prev" class="viewer-btn" ${items.length <= 1 ? "disabled" : ""}>Prev</button>
+        <button id="viewer-next" class="viewer-btn" ${items.length <= 1 ? "disabled" : ""}>Next</button>
+        <a id="viewer-open" class="viewer-btn viewer-btn-primary" href="${escapeHtml(current.url)}" target="_blank" rel="noreferrer">Open Link</a>
+        <a id="viewer-download" class="viewer-btn" href="${escapeHtml(current.url)}" download>Download</a>
+      </div>
+      <div id="viewer-frame-wrap" class="viewer-frame-wrap">
+        <iframe id="viewer-frame" class="viewer-frame" src="${escapeHtml(current.url)}" referrerpolicy="no-referrer"></iframe>
+      </div>
+      <div id="viewer-fallback" class="detail-card" style="margin-top:10px;">
+        If preview is blocked (download-only, CORS, or frame policy), use <strong>Open Link</strong> or <strong>Download</strong>.
+      </div>
+    </section>
+  `;
+}
+
+function updateViewerItem(index: number) {
+  if (!viewerState.items.length) return;
+  viewerState.index = index;
+  const item = viewerState.items[index];
+  const frame = document.getElementById("viewer-frame") as HTMLIFrameElement | null;
+  const open = document.getElementById("viewer-open") as HTMLAnchorElement | null;
+  const download = document.getElementById("viewer-download") as HTMLAnchorElement | null;
+  const meta = document.getElementById("viewer-meta");
+  if (frame) frame.src = item.url;
+  if (open) open.href = item.url;
+  if (download) download.href = item.url;
+  if (meta) meta.textContent = `${index + 1} of ${viewerState.items.length} - ${item.label ?? "Item"}`;
 }
 
 function bindOpeningsInteractions() {
@@ -206,6 +261,35 @@ function bindKanbanInteractions(payload: any) {
   }
 }
 
+function bindViewerInteractions() {
+  const prev = document.getElementById("viewer-prev");
+  const next = document.getElementById("viewer-next");
+  const frame = document.getElementById("viewer-frame") as HTMLIFrameElement | null;
+  const fallback = document.getElementById("viewer-fallback");
+
+  prev?.addEventListener("click", () => {
+    if (viewerState.index <= 0) return;
+    updateViewerItem(viewerState.index - 1);
+  });
+  next?.addEventListener("click", () => {
+    if (viewerState.index >= viewerState.items.length - 1) return;
+    updateViewerItem(viewerState.index + 1);
+  });
+
+  frame?.addEventListener("load", () => {
+    if (fallback) {
+      fallback.innerHTML =
+        "Preview loaded. If this is not readable, use <strong>Open Link</strong> or <strong>Download</strong>.";
+    }
+  });
+  frame?.addEventListener("error", () => {
+    if (fallback) {
+      fallback.innerHTML =
+        "Preview unavailable. This link may force download or block embedding. Use <strong>Open Link</strong> or <strong>Download</strong>.";
+    }
+  });
+}
+
 app.ontoolinput = () => {
   root.innerHTML = `<section class="panel-card"><p class="helper">Loading view data...</p></section>`;
 };
@@ -224,6 +308,12 @@ app.ontoolresult = (result) => {
   if (view === "pipeline_kanban") {
     root.innerHTML = renderPipeline(payload);
     bindKanbanInteractions(payload);
+    return;
+  }
+
+  if (view === "url_viewer") {
+    root.innerHTML = renderViewer(payload);
+    bindViewerInteractions();
     return;
   }
 
