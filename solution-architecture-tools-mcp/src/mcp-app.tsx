@@ -17,6 +17,7 @@ const app = new App({ name: "Solution Architecture App", version: "0.1.0" });
 function DiagramEditor() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [source, setSource] = useState("");
+  const [lastRenderedSource, setLastRenderedSource] = useState("");
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
@@ -25,7 +26,9 @@ function DiagramEditor() {
   app.ontoolresult = (result) => {
     const p = (result.structuredContent ?? {}) as Payload;
     setPayload(p);
-    setSource(p.mermaid_source ?? "");
+    const nextSource = p.mermaid_source ?? "";
+    setSource(nextSource);
+    setLastRenderedSource(nextSource);
     setStatus("");
   };
 
@@ -45,10 +48,14 @@ function DiagramEditor() {
     try {
       setBusy(true);
       setStatus("Rendering SVG preview...");
-      await app.callServerTool("render_diagram", {
-        diagram_type: payload?.diagram_type ?? "general",
-        mermaid_source: source,
+      await app.callServerTool({
+        name: "render_diagram",
+        arguments: {
+          diagram_type: payload?.diagram_type ?? "general",
+          mermaid_source: source,
+        },
       });
+      setLastRenderedSource(source);
       setStatus("Preview rendered.");
     } catch (err: any) {
       setStatus(`Render failed: ${err?.message ?? "Unknown error"}`);
@@ -74,7 +81,9 @@ function DiagramEditor() {
           Type: {payload.diagram_type ?? "general"} | Theme: neutral | Output: svg
         </p>
         <div className="actions">
-          <button className="primary" onClick={onRender} disabled={busy}>{busy ? "Rendering..." : "Render SVG"}</button>
+          <button className="primary" onClick={onRender} disabled={busy || source === lastRenderedSource}>
+            {busy ? "Rendering..." : "Render SVG"}
+          </button>
           {canFullscreen ? (
             <button
               onClick={async () => {
