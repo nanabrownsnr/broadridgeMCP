@@ -16,15 +16,12 @@ const app = new App({ name: "Solution Architecture App", version: "0.1.0" });
 
 function DiagramEditor() {
   const [payload, setPayload] = useState<Payload | null>(null);
-  const [source, setSource] = useState("");
   const [canFullscreen, setCanFullscreen] = useState(false);
   const [displayMode, setDisplayMode] = useState<string>("inline");
 
   app.ontoolresult = (result) => {
     const p = (result.structuredContent ?? {}) as Payload;
     setPayload(p);
-    const nextSource = p.mermaid_source ?? "";
-    setSource(nextSource);
   };
 
   app.ontoolinput = () => {};
@@ -51,9 +48,9 @@ function DiagramEditor() {
   return (
     <div className="shell">
       <section className="card">
-        <h1>{payload.title ?? "Diagram Editor"}</h1>
+        <h1>Preview</h1>
         <p className="meta">
-          Type: {payload.diagram_type ?? "general"} | Theme: neutral | Output: svg
+          {payload.title ?? "Diagram"} | Type: {payload.diagram_type ?? "general"} | Theme: neutral | Output: svg
         </p>
         <div className="actions">
           {canFullscreen ? (
@@ -67,11 +64,6 @@ function DiagramEditor() {
             </button>
           ) : null}
         </div>
-        <textarea value={source} readOnly spellCheck={false} />
-        <div className="warn">To edit diagrams, ask in chat and the tool will update both context and preview.</div>
-      </section>
-      <section className="card">
-        <h1>Preview</h1>
         <div className="preview">{svgDataUri ? <img src={svgDataUri} alt="diagram preview" /> : <p className="meta">No SVG available yet.</p>}</div>
         <div style={{ marginTop: 10 }}>
           <p className="meta" style={{ marginBottom: 6 }}>Notation Rules</p>
