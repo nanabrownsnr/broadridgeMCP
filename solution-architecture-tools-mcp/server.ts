@@ -393,9 +393,9 @@ export function createServer(): McpServer {
     "render_diagram",
     {
       title: "Render Diagram",
-      description: "Render provided Mermaid source to SVG while preserving source as canonical output.",
+      description: "Internal app helper: render provided Mermaid source to SVG while preserving source as canonical output.",
       inputSchema: z.object({ diagram_type: z.string().optional(), mermaid_source: z.string() }),
-      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
+      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["app"] } },
     },
     async (args) => {
       const svg = await tryRenderSvg(args.mermaid_source);
