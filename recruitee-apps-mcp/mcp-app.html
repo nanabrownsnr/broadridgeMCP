@@ -11,12 +11,16 @@
         --violet-light: #f5f3ff;
         --violet-mid: #eeeaff;
         --dark: #0f0f1e;
+        --gray-2: #3c3c58;
         --gray-3: #6a6a88;
         --gray-4: #8a8aa8;
+        --gray-5: #aaaabe;
         --gray-6: #c8c8dc;
         --border: #eaeaf4;
         --bg-input: #fafafe;
         --bg-canvas: #efeff5;
+        --success: #00c98d;
+        --error: #ef4444;
       }
 
       body {
@@ -37,15 +41,18 @@
 
       .panel-head h3 {
         margin: 0;
-        font-size: 18px;
-        font-weight: 800;
-        letter-spacing: -0.5px;
+        font-family: "Syne", "DM Sans", Arial, sans-serif;
+        font-size: 37px;
+        font-weight: 600;
+        letter-spacing: -1.6px;
+        line-height: 1.1;
       }
 
       .panel-head p,
       .helper {
         margin: 8px 0 0;
-        font-size: 13px;
+        font-size: 12px;
+        font-weight: 500;
         color: var(--gray-4);
       }
 
@@ -71,8 +78,9 @@
       }
 
       th {
-        font-size: 12px;
-        letter-spacing: 0.4px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.8px;
         text-transform: uppercase;
         color: var(--gray-3);
         background: var(--bg-input);
@@ -81,6 +89,7 @@
       .opening-row {
         cursor: pointer;
         transition: background 0.15s;
+        outline: none;
       }
 
       .opening-row:hover {
@@ -102,6 +111,13 @@
         font-weight: 600;
       }
 
+      .opening-row:focus-visible,
+      .candidate-card:focus-visible,
+      .stage-column:focus-visible {
+        box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.09);
+        border-color: var(--violet);
+      }
+
       .detail-card {
         margin-top: 12px;
         padding: 14px;
@@ -113,8 +129,16 @@
 
       .detail-card h4 {
         margin: 0 0 10px 0;
-        font-size: 16px;
-        font-weight: 800;
+        font-family: "Syne", "DM Sans", Arial, sans-serif;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.8px;
+        line-height: 1.2;
+      }
+
+      .detail-card div {
+        color: var(--gray-2);
+        margin-top: 3px;
       }
 
       .kanban-wrap {
@@ -141,8 +165,10 @@
       }
 
       .stage-head {
-        font-size: 13px;
+        font-size: 11px;
         font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
         color: var(--gray-3);
         margin-bottom: 8px;
       }
@@ -174,6 +200,7 @@
         font-size: 14px;
         font-weight: 700;
         color: var(--dark);
+        letter-spacing: -0.3px;
       }
 
       .candidate-email,

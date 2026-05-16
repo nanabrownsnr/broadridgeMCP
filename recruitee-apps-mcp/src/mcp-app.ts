@@ -119,6 +119,7 @@ function bindOpeningsInteractions() {
   const openings = (window as any).__openings ?? [];
 
   for (const row of rows) {
+    row.tabIndex = 0;
     row.addEventListener("click", () => {
       for (const r of rows) r.classList.remove("selected");
       row.classList.add("selected");
@@ -133,6 +134,12 @@ function bindOpeningsInteractions() {
         <div><strong>Published:</strong> ${escapeHtml(formatDate(opening.published_at))}</div>
       `;
     });
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        row.click();
+      }
+    });
   }
 }
 
@@ -143,6 +150,7 @@ function bindKanbanInteractions(payload: any) {
   const offerId = payload?.offer_id;
 
   for (const card of cards) {
+    card.tabIndex = 0;
     card.addEventListener("dragstart", (ev) => {
       card.classList.add("dragging");
       ev.dataTransfer?.setData("candidate-id", card.dataset.candidateId ?? "");
@@ -151,6 +159,7 @@ function bindKanbanInteractions(payload: any) {
   }
 
   for (const col of columns) {
+    col.tabIndex = 0;
     col.addEventListener("dragover", (ev) => {
       ev.preventDefault();
       col.classList.add("drop-target");
