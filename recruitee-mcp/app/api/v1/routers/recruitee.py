@@ -476,6 +476,48 @@ async def list_candidates(
 
     data = await _api_request_with_failover("GET", f"/c/{company_id}/candidates", key_candidates, params=params)
     candidate_rows = data.get("candidates", [])
+
+    # Recruitee API filtering behavior can vary by endpoint/account.
+    # Enforce deterministic server-side filtering so MCP behavior is stable.
+    if payload.offer_id is not None:
+        candidate_rows = [
+            c
+            for c in candidate_rows
+            if any((p.get("offer_id") == payload.offer_id) for p in c.get("placements", []))
+        ]
+    if payload.stage_id is not None:
+        candidate_rows = [
+            c
+            for c in candidate_rows
+            if any((p.get("stage_id") == payload.stage_id) for p in c.get("placements", []))
+        ]
+
+    # Build stage-name lookup(s) so UI and chat consumers are not forced to use raw stage IDs.
+    stage_name_by_offer: dict[int, dict[int, str]] = {}
+    offer_ids = {
+        p.get("offer_id")
+        for c in candidate_rows
+        for p in c.get("placements", [])
+        if p.get("offer_id") is not None
+    }
+    for offer_id in offer_ids:
+        try:
+            stages_data = await _api_request_with_failover(
+                "GET",
+                f"/c/{company_id}/offers/{offer_id}/stages",
+                key_candidates,
+            )
+            stage_items = stages_data.get("stages", stages_data if isinstance(stages_data, list) else [])
+            mapping: dict[int, str] = {}
+            for s in stage_items:
+                sid = s.get("id")
+                sname = s.get("name") or s.get("title")
+                if isinstance(sid, int) and isinstance(sname, str):
+                    mapping[sid] = sname
+            stage_name_by_offer[int(offer_id)] = mapping
+        except Exception:
+            # Non-fatal; keep compact response even if stage lookup fails.
+            stage_name_by_offer[int(offer_id)] = {}
     compact = []
     for c in candidate_rows:
         compact.append(
@@ -487,6 +529,11 @@ async def list_candidates(
                     {
                         "offer_id": p.get("offer_id"),
                         "stage_id": p.get("stage_id"),
+                        "stage_name": (
+                            stage_name_by_offer.get(int(p.get("offer_id")), {}).get(int(p.get("stage_id")))
+                            if p.get("offer_id") is not None and p.get("stage_id") is not None
+                            else None
+                        ),
                         "talent_pool_id": p.get("talent_pool_id"),
                     }
                     for p in c.get("placements", [])

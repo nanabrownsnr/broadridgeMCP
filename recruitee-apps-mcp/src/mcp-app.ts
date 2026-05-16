@@ -64,7 +64,11 @@ function renderPipeline(payload: any): string {
     if (!placement) continue;
 
     const stageId = placement.stage_id ?? null;
-    const stageKey = stageId != null ? `Stage ${stageId}` : "Unstaged";
+    const stageName =
+      placement.stage_name && String(placement.stage_name).trim().length > 0
+        ? String(placement.stage_name)
+        : null;
+    const stageKey = stageName ?? (stageId != null ? `Stage ${stageId}` : "Unstaged");
     const card = {
       id: c.candidate_id,
       name: c.name ?? "Unknown",
