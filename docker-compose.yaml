@@ -75,3 +75,12 @@ services:
       - ./recruitee-apps-mcp/.env
     ports:
       - "8014:8018"
+
+  solution-architecture-tools-mcp:
+    restart: unless-stopped
+    build:
+      context: ./solution-architecture-tools-mcp
+    env_file:
+      - ./solution-architecture-tools-mcp/.env
+    ports:
+      - "8019:8019"
