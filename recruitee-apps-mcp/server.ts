@@ -51,6 +51,7 @@ function addProxyTool(
     mapArgsToPath?: (args: Record<string, unknown>) => string;
     mapArgsToBody?: (args: Record<string, unknown>) => unknown;
     mapResult?: (result: unknown, args: Record<string, unknown>) => unknown;
+    mapContentText?: (mapped: unknown, args: Record<string, unknown>) => string;
   },
 ) {
   const metaUi: Record<string, unknown> = { visibility: cfg.visibility ?? ["model", "app"] };
@@ -74,8 +75,9 @@ function addProxyTool(
         const body = cfg.method === "POST" ? (cfg.mapArgsToBody ? cfg.mapArgsToBody(args) : args) : undefined;
         const data = await callRecruiteeApi(path, cfg.method, body);
         const mapped = cfg.mapResult ? cfg.mapResult(data, args) : data;
+        const contentText = cfg.mapContentText ? cfg.mapContentText(mapped, args) : `${cfg.name} executed successfully.`;
         return {
-          content: [{ type: "text", text: `${cfg.name} executed successfully.` }],
+          content: [{ type: "text", text: contentText }],
           structuredContent: mapped,
         };
       } catch (err) {
@@ -161,6 +163,13 @@ export function createServer(): McpServer {
     },
     uiResourceUri: OPENINGS_RESOURCE_URI,
     mapResult: (data) => ({ view: "openings_explorer", data }),
+    mapContentText: (mapped) => {
+      const d = mapped as any;
+      const openings = d?.data?.openings ?? [];
+      if (!openings.length) return "No openings were returned.";
+      const lines = openings.slice(0, 10).map((o: any) => `- ${o.title} (offer_id: ${o.offer_id}, status: ${o.status})`);
+      return `Current openings (${openings.length}):\n${lines.join("\n")}`;
+    },
   });
 
   // View 2: pipeline kanban
@@ -187,6 +196,14 @@ export function createServer(): McpServer {
       stage_id: typeof args.stage_id === "number" ? args.stage_id : null,
       data,
     }),
+    mapContentText: (mapped, args) => {
+      const d = mapped as any;
+      const count = d?.data?.count ?? d?.data?.candidates?.length ?? 0;
+      const offerId = typeof args.offer_id === "number" ? args.offer_id : null;
+      return offerId != null
+        ? `Loaded ${count} candidate(s) for offer_id ${offerId}.`
+        : `Loaded ${count} candidate(s).`;
+    },
   });
 
   // App-only action from kanban drag/drop
