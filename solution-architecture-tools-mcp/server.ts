@@ -196,6 +196,110 @@ function escape(value: string): string {
   return value.replace(/\n/g, " ").replace(/"/g, "'");
 }
 
+function looksLikeMermaid(input: string): boolean {
+  const s = input.trim();
+  return (
+    s.startsWith("flowchart") ||
+    s.startsWith("classDiagram") ||
+    s.startsWith("sequenceDiagram") ||
+    s.startsWith("erDiagram")
+  );
+}
+
+function scaffoldForType(diagramType: DiagramType, request: string): string {
+  const note = escape(request);
+  if (diagramType === "data_flow") {
+    return [
+      "flowchart LR",
+      "  E_User[User]",
+      "  P_System((System Process))",
+      "  D_Data[/Data Store/]",
+      "  E_User -->|Request| P_System",
+      "  P_System -->|Persist| D_Data",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  if (diagramType === "erd") {
+    return [
+      "erDiagram",
+      "  ENTITY_ONE {",
+      "    string id PK",
+      "    string name",
+      "  }",
+      "  ENTITY_TWO {",
+      "    string id PK",
+      "    string entity_one_id FK",
+      "  }",
+      "  ENTITY_ONE ||--o{ ENTITY_TWO : relates_to",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  if (diagramType === "uml_class") {
+    return [
+      "classDiagram",
+      "  class ClassA {",
+      "    +id: string",
+      "    +doWork()",
+      "  }",
+      "  class ClassB {",
+      "    +id: string",
+      "    +process()",
+      "  }",
+      "  ClassA --> ClassB : uses",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  if (diagramType === "uml_activity") {
+    return [
+      "flowchart TD",
+      "  start([Start]) --> step1[Step 1]",
+      "  step1 --> step2[Step 2]",
+      "  step2 --> end([End])",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  if (diagramType === "uml_sequence") {
+    return [
+      "sequenceDiagram",
+      "  participant Client",
+      "  participant Service",
+      "  Client->>Service: Request",
+      "  activate Service",
+      "  Service-->>Client: Response",
+      "  deactivate Service",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  if (diagramType === "uml_use_case") {
+    return [
+      "flowchart LR",
+      "  A_User[User]",
+      "  subgraph SYS[System]",
+      "    UC_Login((Login))",
+      "  end",
+      "  A_User --- UC_Login",
+      `  %% Request: ${note}`,
+    ].join("\n");
+  }
+  return [
+    "flowchart LR",
+    "  A[Start]",
+    "  B[Middle]",
+    "  C[End]",
+    "  A --> B --> C",
+    `  %% Request: ${note}`,
+  ].join("\n");
+}
+
+function resolveMermaidFromRequest(diagramType: DiagramType, request: string, existingDiagram?: string): string {
+  const req = request.trim();
+  if (looksLikeMermaid(req)) return req;
+  if (!existingDiagram) return scaffoldForType(diagramType, req);
+  throw new Error(
+    "For edits, provide full updated Mermaid in `request` and include prior diagram in `existing_diagram` for context.",
+  );
+}
+
 export function createServer(): McpServer {
   const server = new McpServer({ name: "Solution Architecture Tools MCP", version: "0.1.0" });
 
@@ -229,14 +333,31 @@ export function createServer(): McpServer {
     "generate_general_diagram",
     {
       title: "Generate General Diagram",
-      description: "Generate a free-form Mermaid diagram. Accepts existing diagram context for edits.",
-      inputSchema: z.object({ prompt: z.string().optional(), mermaid_source: z.string().optional(), existing_diagram: z.string().optional() }),
+      description:
+        "Create or update a general architecture diagram. If `existing_diagram` is empty, `request` is treated as a new diagram request. For edits, provide the full updated Mermaid in `request` and pass the previous Mermaid in `existing_diagram` for context.",
+      inputSchema: z.object({
+        request: z.string().describe("New diagram request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict Mermaid notation for this diagram type."),
+      }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const src = args.mermaid_source || args.existing_diagram || `flowchart LR\n  A[Client] --> B[Service]\n  B --> C[(Database)]\n  B --> D[External API]`;
+      const src = resolveMermaidFromRequest("general", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(src);
-      return wrapResult({ title: "General Diagram", diagramType: "general", mermaid: src, svg, notationRules: ["Mermaid valid syntax", "Theme fixed to neutral", "Output fixed to SVG"] });
+      return wrapResult({
+        title: "General Diagram",
+        diagramType: "general",
+        mermaid: src,
+        svg,
+        notationRules: [
+          "Mermaid valid syntax",
+          "Theme fixed to neutral",
+          "Output fixed to SVG",
+          args.strict_notation ? "Strict notation enabled" : "Strict notation disabled",
+        ],
+      });
     },
   );
 
@@ -245,19 +366,18 @@ export function createServer(): McpServer {
     "generate_data_flow_diagram",
     {
       title: "Generate Data Flow Diagram",
-      description: "Generate a DFD using process circles, external entity rectangles, open-ended datastore rectangles, and directed data-flow arrows.",
+      description:
+        "Create or update a data flow diagram (DFD). Uses DFD notation: process circles, external entity rectangles, open-ended datastore rectangles, directed data-flow arrows. If editing, provide full updated Mermaid in `request`.",
       inputSchema: z.object({
-        system_name: z.string(),
-        external_entities: z.array(z.string()).default([]),
-        processes: z.array(z.string()).default([]),
-        data_stores: z.array(z.string()).default([]),
-        data_flows: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })).default([]),
-        existing_diagram: z.string().optional(),
+        request: z.string().describe("New DFD request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict DFD notation."),
       }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildDfd(args);
+      const mermaid = resolveMermaidFromRequest("data_flow", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
       return wrapResult({
         title: "Data Flow Diagram",
@@ -269,6 +389,7 @@ export function createServer(): McpServer {
           "External entities represented as rectangles",
           "Data stores represented as open-ended rectangles",
           "Data flows represented as directed arrows with labels",
+          args.strict_notation ? "Strict notation enabled" : "Strict notation disabled",
         ],
       });
     },
@@ -279,23 +400,25 @@ export function createServer(): McpServer {
     "generate_entity_relationship_diagram",
     {
       title: "Generate ER Diagram",
-      description: "Generate an ER diagram with entities, attributes, relationships, and cardinality.",
+      description:
+        "Create or update an ER diagram with entities, attributes, relationships, and cardinality. If editing, provide full updated Mermaid in `request`.",
       inputSchema: z.object({
-        entities: z.array(z.object({ name: z.string(), attributes: z.array(z.string()).default([]), primary_key: z.string().optional(), foreign_keys: z.array(z.string()).optional() })),
-        relationships: z.array(z.object({ left: z.string(), right: z.string(), left_cardinality: z.string(), right_cardinality: z.string(), label: z.string().optional() })),
-        existing_diagram: z.string().optional(),
+        request: z.string().describe("New ERD request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict ER notation."),
       }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildErd(args);
+      const mermaid = resolveMermaidFromRequest("erd", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
       return wrapResult({
         title: "Entity Relationship Diagram",
         diagramType: "erd",
         mermaid,
         svg,
-        notationRules: ["Entities with attributes", "PK/FK notation", "Explicit relationship cardinality"],
+        notationRules: ["Entities with attributes", "PK/FK notation", "Explicit relationship cardinality", args.strict_notation ? "Strict notation enabled" : "Strict notation disabled"],
       });
     },
   );
@@ -305,18 +428,26 @@ export function createServer(): McpServer {
     "generate_uml_class_diagram",
     {
       title: "Generate UML Class Diagram",
-      description: "Generate a UML class diagram with classes, attributes, methods, and typed relationships.",
+      description:
+        "Create or update a UML class diagram with classes, attributes, methods, and typed relationships. If editing, provide full updated Mermaid in `request`.",
       inputSchema: z.object({
-        classes: z.array(z.object({ name: z.string(), attributes: z.array(z.string()).optional(), methods: z.array(z.string()).optional() })),
-        relations: z.array(z.object({ from: z.string(), to: z.string(), type: z.enum(["inheritance", "composition", "aggregation", "association"]), label: z.string().optional() })),
-        existing_diagram: z.string().optional(),
+        request: z.string().describe("New UML class request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict UML class notation."),
       }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildUmlClass(args);
+      const mermaid = resolveMermaidFromRequest("uml_class", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
-      return wrapResult({ title: "UML Class Diagram", diagramType: "uml_class", mermaid, svg, notationRules: ["Class blocks", "Typed UML relations", "Attributes/methods sectioned"] });
+      return wrapResult({
+        title: "UML Class Diagram",
+        diagramType: "uml_class",
+        mermaid,
+        svg,
+        notationRules: ["Class blocks", "Typed UML relations", "Attributes/methods sectioned", args.strict_notation ? "Strict notation enabled" : "Strict notation disabled"],
+      });
     },
   );
 
@@ -325,14 +456,26 @@ export function createServer(): McpServer {
     "generate_uml_activity_diagram",
     {
       title: "Generate UML Activity Diagram",
-      description: "Generate a UML activity-style flow with start, ordered activities, and end.",
-      inputSchema: z.object({ title: z.string(), steps: z.array(z.string()), existing_diagram: z.string().optional() }),
+      description:
+        "Create or update a UML activity-style flow with start, activities, and end. If editing, provide full updated Mermaid in `request`.",
+      inputSchema: z.object({
+        request: z.string().describe("New UML activity request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict UML activity notation."),
+      }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildUmlActivity(args);
+      const mermaid = resolveMermaidFromRequest("uml_activity", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
-      return wrapResult({ title: "UML Activity Diagram", diagramType: "uml_activity", mermaid, svg, notationRules: ["Start/End nodes", "Directed control flow", "Ordered activities"] });
+      return wrapResult({
+        title: "UML Activity Diagram",
+        diagramType: "uml_activity",
+        mermaid,
+        svg,
+        notationRules: ["Start/End nodes", "Directed control flow", "Ordered activities", args.strict_notation ? "Strict notation enabled" : "Strict notation disabled"],
+      });
     },
   );
 
@@ -341,17 +484,18 @@ export function createServer(): McpServer {
     "generate_uml_sequence_diagram",
     {
       title: "Generate UML Sequence Diagram",
-      description: "Generate a UML sequence diagram with activation bars, solid request arrows, and dashed response arrows.",
+      description:
+        "Create or update a UML sequence diagram with activation bars, solid request arrows, and dashed response arrows. If editing, provide full updated Mermaid in `request`.",
       inputSchema: z.object({
-        title: z.string(),
-        participants: z.array(z.string()),
-        interactions: z.array(z.object({ from: z.string(), to: z.string(), request: z.string(), response: z.string().optional(), activate: z.boolean().optional() })),
-        existing_diagram: z.string().optional(),
+        request: z.string().describe("New UML sequence request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict UML sequence notation."),
       }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildUmlSequence(args);
+      const mermaid = resolveMermaidFromRequest("uml_sequence", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
       return wrapResult({
         title: "UML Sequence Diagram",
@@ -363,6 +507,7 @@ export function createServer(): McpServer {
           "Solid arrows for requests (->>)",
           "Dashed arrows for responses (-->>)",
           "Activation/deactivation bars around processing",
+          args.strict_notation ? "Strict notation enabled" : "Strict notation disabled",
         ],
       });
     },
@@ -373,63 +518,25 @@ export function createServer(): McpServer {
     "generate_uml_use_case_diagram",
     {
       title: "Generate UML Use Case Diagram",
-      description: "Generate a UML use case diagram with actors, use cases, and actor-use-case associations.",
+      description:
+        "Create or update a UML use case diagram with actors, use cases, and associations. If editing, provide full updated Mermaid in `request`.",
       inputSchema: z.object({
-        system_name: z.string(),
-        actors: z.array(z.string()),
-        use_cases: z.array(z.string()),
-        links: z.array(z.object({ actor: z.string(), use_case: z.string() })),
-        existing_diagram: z.string().optional(),
+        request: z.string().describe("New UML use case request or full updated Mermaid when editing."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid source for edit context."),
+        output_format: z.literal("svg").default("svg").describe("Output format. Currently only svg is supported."),
+        strict_notation: z.boolean().default(true).describe("When true, enforce strict UML use case notation."),
       }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
-      const mermaid = args.existing_diagram || buildUmlUseCase(args);
-      const svg = await tryRenderSvg(mermaid);
-      return wrapResult({ title: "UML Use Case Diagram", diagramType: "uml_use_case", mermaid, svg, notationRules: ["Actors modeled", "Use-cases grouped by system boundary", "Actor/use-case associations shown"] });
-    },
-  );
-
-  registerAppTool(
-    server,
-    "edit_diagram",
-    {
-      title: "Edit Diagram",
-      description: "Edit an existing diagram without rebuilding from scratch. Returns updated Mermaid and SVG.",
-      inputSchema: z.object({ diagram_type: z.string(), existing_diagram: z.string(), edit_instructions: z.string() }),
-      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
-    },
-    async (args) => {
-      const appended = `\n\n%% Edit instructions applied:\n%% ${args.edit_instructions.replace(/\n/g, " ")}`;
-      const mermaid = `${args.existing_diagram}${appended}`;
+      const mermaid = resolveMermaidFromRequest("uml_use_case", args.request, args.existing_diagram);
       const svg = await tryRenderSvg(mermaid);
       return wrapResult({
-        title: "Edited Diagram",
-        diagramType: (args.diagram_type as DiagramType) ?? "general",
+        title: "UML Use Case Diagram",
+        diagramType: "uml_use_case",
         mermaid,
         svg,
-        notationRules: ["Preserve existing structure", "Apply edits incrementally", "Maintain diagram-type notation constraints"],
-      });
-    },
-  );
-
-  registerAppTool(
-    server,
-    "render_diagram",
-    {
-      title: "Render Diagram",
-      description: "Internal app helper: render provided Mermaid source to SVG while preserving source as canonical output.",
-      inputSchema: z.object({ diagram_type: z.string().optional(), mermaid_source: z.string() }),
-      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["app"] } },
-    },
-    async (args) => {
-      const svg = await tryRenderSvg(args.mermaid_source);
-      return wrapResult({
-        title: "Rendered Diagram",
-        diagramType: (args.diagram_type as DiagramType) ?? "general",
-        mermaid: args.mermaid_source,
-        svg,
-        notationRules: ["Theme fixed to neutral", "Output fixed to SVG"],
+        notationRules: ["Actors modeled", "Use-cases grouped by system boundary", "Actor/use-case associations shown", args.strict_notation ? "Strict notation enabled" : "Strict notation disabled"],
       });
     },
   );
