@@ -50,7 +50,7 @@ function addProxyTool(
     uiResourceUri?: string;
     mapArgsToPath?: (args: Record<string, unknown>) => string;
     mapArgsToBody?: (args: Record<string, unknown>) => unknown;
-    mapResult?: (result: unknown) => unknown;
+    mapResult?: (result: unknown, args: Record<string, unknown>) => unknown;
   },
 ) {
   const metaUi: Record<string, unknown> = { visibility: cfg.visibility ?? ["model", "app"] };
@@ -73,7 +73,7 @@ function addProxyTool(
         const path = cfg.mapArgsToPath ? cfg.mapArgsToPath(args) : cfg.path;
         const body = cfg.method === "POST" ? (cfg.mapArgsToBody ? cfg.mapArgsToBody(args) : args) : undefined;
         const data = await callRecruiteeApi(path, cfg.method, body);
-        const mapped = cfg.mapResult ? cfg.mapResult(data) : data;
+        const mapped = cfg.mapResult ? cfg.mapResult(data, args) : data;
         return {
           content: [{ type: "text", text: `${cfg.name} executed successfully.` }],
           structuredContent: mapped,
@@ -181,7 +181,12 @@ export function createServer(): McpServer {
       additionalProperties: false,
     },
     uiResourceUri: PIPELINE_RESOURCE_URI,
-    mapResult: (data) => ({ view: "pipeline_kanban", data }),
+    mapResult: (data, args) => ({
+      view: "pipeline_kanban",
+      offer_id: typeof args.offer_id === "number" ? args.offer_id : null,
+      stage_id: typeof args.stage_id === "number" ? args.stage_id : null,
+      data,
+    }),
   });
 
   // App-only action from kanban drag/drop

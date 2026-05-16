@@ -1,16 +1,192 @@
-﻿<!doctype html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Recruitee MCP App</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f7f8fa; color: #111827; }
-      h3 { margin: 0 0 10px 0; }
-      table { width: 100%; border-collapse: collapse; margin: 8px 0 12px 0; }
-      th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 13px; }
-      th { background: #eef2ff; }
-      pre { background: #0b1020; color: #e5e7eb; padding: 10px; border-radius: 8px; overflow: auto; font-size: 12px; }
+      :root {
+        --violet: #6c5ce7;
+        --violet-h: #5a4bd6;
+        --violet-light: #f5f3ff;
+        --violet-mid: #eeeaff;
+        --dark: #0f0f1e;
+        --gray-3: #6a6a88;
+        --gray-4: #8a8aa8;
+        --gray-6: #c8c8dc;
+        --border: #eaeaf4;
+        --bg-input: #fafafe;
+        --bg-canvas: #efeff5;
+      }
+
+      body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg-canvas);
+        color: var(--dark);
+        font-family: "DM Sans", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .panel-card {
+        background: #fff;
+        border: 1.5px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .panel-head h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+      }
+
+      .panel-head p,
+      .helper {
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: var(--gray-4);
+      }
+
+      .table-wrap {
+        margin-top: 12px;
+        border: 1.5px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+      }
+
+      th,
+      td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        font-size: 14px;
+      }
+
+      th {
+        font-size: 12px;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--gray-3);
+        background: var(--bg-input);
+      }
+
+      .opening-row {
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .opening-row:hover {
+        background: #faf9ff;
+      }
+
+      .opening-row.selected {
+        background: var(--violet-light);
+      }
+
+      .status-chip {
+        display: inline-flex;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1.5px solid var(--border);
+        background: var(--bg-input);
+        color: var(--gray-3);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .detail-card {
+        margin-top: 12px;
+        padding: 14px;
+        border: 1.5px solid var(--border);
+        border-radius: 12px;
+        background: var(--bg-input);
+        font-size: 14px;
+      }
+
+      .detail-card h4 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .kanban-wrap {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        margin-top: 10px;
+        padding-bottom: 8px;
+      }
+
+      .stage-column {
+        min-width: 270px;
+        max-width: 270px;
+        border: 1.5px solid var(--border);
+        border-radius: 14px;
+        background: var(--bg-input);
+        padding: 10px;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+
+      .stage-column.drop-target {
+        border-color: var(--violet);
+        box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.09);
+      }
+
+      .stage-head {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--gray-3);
+        margin-bottom: 8px;
+      }
+
+      .stage-cards {
+        min-height: 32px;
+      }
+
+      .candidate-card {
+        border: 1.5px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px;
+        margin-bottom: 8px;
+        cursor: grab;
+        transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+      }
+
+      .candidate-card:hover {
+        border-color: #c8c0f8;
+      }
+
+      .candidate-card.dragging {
+        opacity: 0.6;
+        transform: translateY(-1px);
+      }
+
+      .candidate-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--dark);
+      }
+
+      .candidate-email,
+      .candidate-meta {
+        font-size: 12px;
+        color: var(--gray-4);
+        margin-top: 3px;
+      }
+
+      .stage-empty {
+        font-size: 12px;
+        color: var(--gray-6);
+      }
     </style>
   </head>
   <body>
