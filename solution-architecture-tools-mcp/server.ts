@@ -209,7 +209,8 @@ export function createServer(): McpServer {
     "generate_general_diagram",
     {
       title: "Generate General Diagram",
-      description: "Generate a free-form Mermaid diagram. Accepts existing diagram context for edits.",
+      description:
+        "Generate a free-form architecture/deployment diagram. What to draw: major system blocks, tier boundaries, and labeled connections/protocols. How to determine inputs: map frontend/backend/data layers, external dependencies, and trust/network boundaries; ask follow-up when hosting topology or protocols are missing.",
       inputSchema: z.object({ prompt: z.string().optional(), mermaid_source: z.string().optional(), existing_diagram: z.string().optional() }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
@@ -225,7 +226,8 @@ export function createServer(): McpServer {
     "generate_data_flow_diagram",
     {
       title: "Generate Data Flow Diagram",
-      description: "Generate a DFD using process circles, external entity rectangles, open-ended datastore rectangles, and directed data-flow arrows.",
+      description:
+        "Generate a Data Flow Diagram (DFD). What to draw: process circles, external entity rectangles, open-ended data store rectangles, and labeled directed data-flow arrows. How to determine inputs: for Level 0 context, keep one central process and map all external entities/data exchanges; ask follow-up if flows or boundary are incomplete.",
       inputSchema: z.object({
         system_name: z.string(),
         external_entities: z.array(z.string()).default([]),
@@ -259,7 +261,8 @@ export function createServer(): McpServer {
     "generate_entity_relationship_diagram",
     {
       title: "Generate ER Diagram",
-      description: "Generate an ER diagram with entities, attributes, relationships, and cardinality.",
+      description:
+        "Generate an ER diagram. What to draw: entities/tables with key attributes and cardinality relationships. How to determine inputs: extract stable domain nouns from use cases/workflows, define PK/FK keys, and map one-to-one/one-to-many/many-to-many links; ask follow-up when keys/cardinality are unclear.",
       inputSchema: z.object({
         entities: z.array(z.object({ name: z.string(), attributes: z.array(z.string()).default([]), primary_key: z.string().optional(), foreign_keys: z.array(z.string()).optional() })),
         relationships: z.array(z.object({ left: z.string(), right: z.string(), left_cardinality: z.string(), right_cardinality: z.string(), label: z.string().optional() })),
@@ -285,7 +288,8 @@ export function createServer(): McpServer {
     "generate_uml_class_diagram",
     {
       title: "Generate UML Class Diagram",
-      description: "Generate a UML class diagram with classes, attributes, methods, and typed relationships.",
+      description:
+        "Generate a UML class diagram. What to draw: class names, attributes, operations, and typed structural relationships (association, inheritance, composition, aggregation). How to determine inputs: focus on core backend/domain modules, responsibilities, and ownership boundaries; ask follow-up if class responsibilities or relation types are missing.",
       inputSchema: z.object({
         classes: z.array(z.object({ name: z.string(), attributes: z.array(z.string()).optional(), methods: z.array(z.string()).optional() })),
         relations: z.array(z.object({ from: z.string(), to: z.string(), type: z.enum(["inheritance", "composition", "aggregation", "association"]), label: z.string().optional() })),
@@ -305,7 +309,8 @@ export function createServer(): McpServer {
     "generate_uml_activity_diagram",
     {
       title: "Generate UML Activity Diagram",
-      description: "Generate a UML activity-style flow with start, ordered activities, and end.",
+      description:
+        "Generate a UML activity/flowchart diagram. What to draw: actions, decisions, and directional control flow including edge/error branches. How to determine inputs: choose decision-heavy business logic loops and explicit if/else paths; avoid trivial linear actions.",
       inputSchema: z.object({ title: z.string(), steps: z.array(z.string()), existing_diagram: z.string().optional() }),
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
@@ -321,7 +326,8 @@ export function createServer(): McpServer {
     "generate_uml_sequence_diagram",
     {
       title: "Generate UML Sequence Diagram",
-      description: "Generate a UML sequence diagram with activation bars, solid request arrows, and dashed response arrows.",
+      description:
+        "Generate a UML sequence diagram. What to draw: component lifelines, time-ordered request/response messages, and activation bars. How to determine inputs: model one complex use case where multiple services interact in order (e.g., checkout, onboarding, verification); avoid simple single-step paths.",
       inputSchema: z.object({
         title: z.string(),
         participants: z.array(z.string()),
@@ -353,7 +359,8 @@ export function createServer(): McpServer {
     "generate_uml_use_case_diagram",
     {
       title: "Generate UML Use Case Diagram",
-      description: "Generate a UML use case diagram with actors, use cases, and actor-use-case associations.",
+      description:
+        "Generate a UML use case diagram. What to draw: actors, high-level goal use cases, and system boundary associations. How to determine inputs: list major functional goals (not click-level tasks), identify all actor roles/systems, and connect actors to goals; ask follow-up if scope is ambiguous.",
       inputSchema: z.object({
         system_name: z.string(),
         actors: z.array(z.string()),
@@ -409,6 +416,87 @@ export function createServer(): McpServer {
         mermaid: args.mermaid_source,
         svg,
         notationRules: ["Theme fixed to neutral", "Output fixed to SVG"],
+      });
+    },
+  );
+
+  registerAppTool(
+    server,
+    "generate_deployment_architecture_diagram",
+    {
+      title: "Generate Deployment Architecture Diagram",
+      description:
+        "Generate a deployment architecture diagram. What to draw: client/edge/app/data infrastructure blocks and protocol-labeled links (HTTPS, gRPC, SQL, etc.). How to determine inputs: identify frontend tier, backend tier, data tier, and network boundaries; ask for missing deployment assumptions before finalizing.",
+      inputSchema: z.object({
+        mermaid_source: z.string().optional().describe("Optional full Mermaid source."),
+        architecture_prompt: z.string().optional().describe("Natural-language architecture requirements."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid to refine."),
+      }),
+      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
+    },
+    async (args) => {
+      const src =
+        args.mermaid_source ||
+        args.existing_diagram ||
+        `flowchart LR
+  Client[Web/Mobile Client] -->|HTTPS| Edge[API Gateway]
+  Edge -->|HTTPS| App[Application Service]
+  App -->|SQL| DB[(Primary Database)]
+  App -->|HTTPS| Ext[External Service]
+  %% Prompt: ${escape(args.architecture_prompt ?? "General deployment architecture")}`;
+      const svg = await tryRenderSvg(src);
+      return wrapResult({
+        title: "Deployment Architecture Diagram",
+        diagramType: "general",
+        mermaid: src,
+        svg,
+        notationRules: [
+          "Show infrastructure and tier boundaries",
+          "Label protocol/data transport on links",
+          "Include core runtime services and data stores",
+          "Focus on deployment topology, not low-level code detail",
+        ],
+      });
+    },
+  );
+
+  registerAppTool(
+    server,
+    "generate_context_diagram",
+    {
+      title: "Generate Context Diagram",
+      description:
+        "Generate a Context Diagram (DFD Level 0). What to draw: one central process for the entire system, external entities, and labeled inbound/outbound data flows. How to determine inputs: derive actors/systems from use cases and integrations, then map major data exchanges only (no internal subsystem detail).",
+      inputSchema: z.object({
+        system_name: z.string().describe("The full system boundary name."),
+        external_entities: z.array(z.string()).default([]).describe("All external actors/systems interacting with your system."),
+        data_flows: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })).default([]).describe("Major data entering/leaving system boundary."),
+        existing_diagram: z.string().optional().describe("Optional existing Mermaid to refine."),
+      }),
+      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
+    },
+    async (args) => {
+      const mermaid =
+        args.existing_diagram ||
+        buildDfd({
+          system_name: args.system_name,
+          external_entities: args.external_entities,
+          processes: [args.system_name],
+          data_stores: [],
+          data_flows: args.data_flows,
+        });
+      const svg = await tryRenderSvg(mermaid);
+      return wrapResult({
+        title: "Context Diagram (DFD Level 0)",
+        diagramType: "data_flow",
+        mermaid,
+        svg,
+        notationRules: [
+          "Single central process for full system",
+          "External entities shown as rectangles",
+          "Labeled directed flows to/from boundary",
+          "No internal decomposition in Level 0",
+        ],
       });
     },
   );
