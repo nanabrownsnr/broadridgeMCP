@@ -9,7 +9,6 @@ from app.core.platform_integration_client import PlatformIntegrationClient, get_
 from app.schemas.cloud_cost import (
     CalculateWorkloadCostRequest,
     CompareComputeRequest,
-    CompareEgressRequest,
     CompareStorageRequest,
     EstimateMigrationSavingsRequest,
     QuickEstimateRequest,
@@ -260,22 +259,6 @@ async def compare_storage(payload: CompareStorageRequest, platform_client: Platf
         ],
         summary={"cheapest_provider": rows[0]["provider"], "cheapest_monthly_cost": rows[0]["estimated_monthly_cost"]},
         warnings=warnings,
-    )
-
-
-@router.post("/compare_egress", operation_id="cloud_cost_compare_egress")
-async def compare_egress(payload: CompareEgressRequest, platform_client: PlatformIntegrationClient = Depends(get_platform_client)) -> dict:
-    """
-    Egress comparison placeholder using live-source policy.
-    This version intentionally avoids embedded static egress tables.
-    """
-    _ = platform_client
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Live egress normalization is not implemented in this version without embedded provider-specific tables. "
-            "Use compare_compute/compare_storage (live) for now."
-        ),
     )
 
 
