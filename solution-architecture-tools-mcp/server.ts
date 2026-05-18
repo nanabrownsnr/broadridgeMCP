@@ -24,7 +24,7 @@ function b64(input: string): string {
 async function tryRenderSvg(mermaid: string): Promise<string | null> {
   try {
     const encoded = b64(mermaid);
-    const url = `${MERMAID_RENDER_BASE_URL.replace(/\\/$/, "")}/svg/${encoded}`;
+    const url = `${MERMAID_RENDER_BASE_URL.replace(/\/$/, "")}/svg/${encoded}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const txt = await res.text();
