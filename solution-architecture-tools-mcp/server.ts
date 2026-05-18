@@ -372,7 +372,6 @@ export function createServer(): McpServer {
       title: "Edit Diagram",
       description: "Edit an existing diagram without rebuilding from scratch. Returns updated Mermaid and SVG.",
       inputSchema: z.object({ diagram_type: z.string(), existing_diagram: z.string(), edit_instructions: z.string() }),
-      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model", "app"] } },
     },
     async (args) => {
       const appended = `\n\n%% Edit instructions applied:\n%% ${args.edit_instructions.replace(/\n/g, " ")}`;
