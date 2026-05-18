@@ -16,6 +16,7 @@ type DiagramType =
 const DIST_DIR = path.join(import.meta.dirname, "dist");
 const EDITOR_RESOURCE_URI = "ui://solution-architecture-tools/editor.html";
 const MERMAID_RENDER_BASE_URL = process.env.MERMAID_RENDER_BASE_URL ?? "https://mermaid.ink";
+const DIAGRAM_EXPORT_DIR = process.env.DIAGRAM_EXPORT_DIR ?? path.join(import.meta.dirname, "exports");
 
 function b64(input: string): string {
   return Buffer.from(input, "utf-8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
@@ -169,6 +170,10 @@ function safeName(value: string): string {
 }
 function escape(value: string): string {
   return value.replace(/\n/g, " ").replace(/"/g, "'");
+}
+
+function slugify(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "diagram";
 }
 
 export function createServer(): McpServer {
@@ -405,6 +410,47 @@ export function createServer(): McpServer {
         svg,
         notationRules: ["Theme fixed to neutral", "Output fixed to SVG"],
       });
+    },
+  );
+
+  registerAppTool(
+    server,
+    "export_diagram",
+    {
+      title: "Export Diagram",
+      description:
+        "Export a diagram for external editors as a draw.io-friendly Mermaid text file (plain Mermaid, no code fences).",
+      inputSchema: z.object({
+        diagram_name: z.string().describe("Human-friendly file name for the export."),
+        mermaid_source: z.string().describe("Raw Mermaid source text to export."),
+      }),
+    },
+    async (args) => {
+      await fs.mkdir(DIAGRAM_EXPORT_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const base = `${slugify(args.diagram_name)}-${stamp}`;
+      const files: Array<{ type: "mermaid"; path: string }> = [];
+
+      const mmdPath = path.join(DIAGRAM_EXPORT_DIR, `${base}.mmd`);
+      await fs.writeFile(mmdPath, args.mermaid_source.trim(), "utf-8");
+      files.push({ type: "mermaid", path: mmdPath });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Exported ${files.length} file(s):\n${files.map((f) => `- ${f.type}: ${f.path}`).join("\n")}`,
+          },
+        ],
+        structuredContent: {
+          diagram_name: args.diagram_name,
+          output_format: "mermaid",
+          export_dir: DIAGRAM_EXPORT_DIR,
+          files,
+          drawio_note:
+            "For draw.io Mermaid import, paste plain Mermaid text only (no ``` fences and no leading 'mermaid' keyword).",
+        },
+      };
     },
   );
 
