@@ -84,3 +84,12 @@ services:
       - ./solution-architecture-tools-mcp/.env
     ports:
       - "8019:8019"
+
+  cloud-cost-mcp:
+    restart: unless-stopped
+    build:
+      context: ./cloud-cost-mcp
+    env_file:
+      - ./cloud-cost-mcp/.env
+    ports:
+      - "8020:8000"

@@ -9,6 +9,8 @@ MCP servers in one repo:
 - `candidate-intelligence-mcp`: resume-to-role matching (single + batch) with built-in mini-graph scoring and evidence
 - `docusign-mcp`: send signature envelopes, track status, list candidate-linked envelopes, and fetch completed document references
 - `pandadoc-mcp`: PandaDoc workflows for templates/documents (list templates, create from template, inspect status/details, send)
+- `solution-architecture-tools-mcp`: architecture diagram tools (UML/DFD/ERD) with Mermaid preview and export
+- `cloud-cost-mcp`: cloud cost comparison and workload estimation across AWS, Azure, GCP, OCI
 
 ## One-command deploy
 
@@ -25,6 +27,8 @@ This builds and starts all services via Docker Compose.
 - Candidate Intelligence MCP: `http://localhost:8015`
 - DocuSign MCP: `http://localhost:8016`
 - PandaDoc MCP: `http://localhost:8017`
+- Solution Architecture Tools MCP: `http://localhost:8019`
+- Cloud Cost MCP: `http://localhost:8020`
 - Streamable HTTP MCP endpoints:
   - `http://localhost:8011/mcp`
   - `http://localhost:8012/mcp`
@@ -33,6 +37,8 @@ This builds and starts all services via Docker Compose.
   - `http://localhost:8015/mcp`
   - `http://localhost:8016/mcp`
   - `http://localhost:8017/mcp`
+  - `http://localhost:8019/mcp`
+  - `http://localhost:8020/mcp`
 - SSE fallback endpoints:
   - `http://localhost:8011/sse`
   - `http://localhost:8012/sse`
@@ -41,6 +47,8 @@ This builds and starts all services via Docker Compose.
   - `http://localhost:8015/sse`
   - `http://localhost:8016/sse`
   - `http://localhost:8017/sse`
+  - `http://localhost:8019/sse`
+  - `http://localhost:8020/sse`
 
 ## Notes
 
