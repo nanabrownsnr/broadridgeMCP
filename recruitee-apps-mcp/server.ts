@@ -76,6 +76,10 @@ function addProxyTool(
         const body = cfg.method === "POST" ? (cfg.mapArgsToBody ? cfg.mapArgsToBody(args) : args) : undefined;
         const data = await callRecruiteeApi(path, cfg.method, body);
         const mapped = cfg.mapResult ? cfg.mapResult(data, args) : data;
+        const structuredWithUi =
+          cfg.uiResourceUri && mapped && typeof mapped === "object"
+            ? { ...(mapped as Record<string, unknown>), _ui: { resourceUri: cfg.uiResourceUri } }
+            : mapped;
         const contentText = cfg.mapContentText ? cfg.mapContentText(mapped, args) : `${cfg.name} executed successfully.`;
         const resultMeta = cfg.uiResourceUri
           ? {
@@ -86,7 +90,7 @@ function addProxyTool(
           : undefined;
         return {
           content: [{ type: "text", text: contentText }],
-          structuredContent: mapped,
+          structuredContent: structuredWithUi,
           ...(resultMeta ? { _meta: resultMeta } : {}),
         };
       } catch (err) {
