@@ -513,6 +513,7 @@ export function createServer(): McpServer {
         diagram_name: z.string().describe("Human-friendly file name for the export."),
         mermaid_source: z.string().describe("Raw Mermaid source text to export."),
       }),
+      _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI, visibility: ["model"] } },
     },
     async (args) => {
       await fs.mkdir(DIAGRAM_EXPORT_DIR, { recursive: true });
