@@ -77,9 +77,17 @@ function addProxyTool(
         const data = await callRecruiteeApi(path, cfg.method, body);
         const mapped = cfg.mapResult ? cfg.mapResult(data, args) : data;
         const contentText = cfg.mapContentText ? cfg.mapContentText(mapped, args) : `${cfg.name} executed successfully.`;
+        const resultMeta = cfg.uiResourceUri
+          ? {
+              ui: {
+                resourceUri: cfg.uiResourceUri,
+              },
+            }
+          : undefined;
         return {
           content: [{ type: "text", text: contentText }],
           structuredContent: mapped,
+          ...(resultMeta ? { _meta: resultMeta } : {}),
         };
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : `Unknown error in ${cfg.name}`);
